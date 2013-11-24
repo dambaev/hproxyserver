@@ -5,6 +5,7 @@ module Main where
 
 import Control.Concurrent.HEP as H
 import Control.Concurrent.HEP.Syslog
+import Control.Concurrent
 import System.Process
 import Data.Typeable
 import Data.UUID
@@ -23,7 +24,7 @@ import System.Console.GetOpt
 import Text.ParserCombinators.Parsec
 import Network
 import Config
-
+import TCPServer
 
 data MainState = MainState
     { proxySession:: ProxySession
@@ -55,6 +56,7 @@ getMainOptions argv =
 
 main = withSocketsDo $! runHEPGlobal $! procWithSupervisor (H.proc superLogAndExit) $! 
     procWithBracket mainInit mainShutdown $! H.proc $! do
+        liftIO $! threadDelay $! 10000000
         procFinished
 
 superLogAndExit:: HEPProc
@@ -111,7 +113,11 @@ mainInit = do
         Just (!fname, !line, !rule) -> do
             syslogInfo $! "matched rule (" ++ fname ++ ":" ++ 
                 show line ++ "): " ++ show rule
-            procRunning
+            case rulePermission rule of
+                RuleDeny -> error "denied"
+                RuleAllow -> do
+                    startTCPServerBasePort $! PortNumber 22
+                    procRunning
     
     
 mainShutdown:: HEPProc
