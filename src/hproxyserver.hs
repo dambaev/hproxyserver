@@ -196,27 +196,27 @@ mainShutdown = do
         Just state -> do
             let readed = case mainRead state of
                     some | some >= 1024 * 1048576 -> 
-                        show (fromIntegral some / (1024 * 1048576)) ++ " GB"
+                        show (fromIntegral some / (1024 * 1048576)) ++ " GiB"
                     some | some >= 1048576 -> 
-                        show (fromIntegral some / 1048576) ++ " MB"
+                        show (fromIntegral some / 1048576) ++ " MiB"
                     some | some >= 1024 -> 
-                        show (fromIntegral some / 1024) ++ " KB"
+                        show (fromIntegral some / 1024) ++ " KiB"
                     some -> show some ++ " B"
                 wrote = case mainWrote state of
                     some | some >= 1024 * 1048576 -> 
-                        show (fromIntegral some / (1024 * 1048576)) ++ " GB"
+                        show (fromIntegral some / (1024 * 1048576)) ++ " GiB"
                     some | some >= 1048576 -> 
-                        show (fromIntegral some / 1048576) ++ " MB"
+                        show (fromIntegral some / 1048576) ++ " MiB"
                     some | some >= 1024 -> 
-                        show (fromIntegral some / 1024) ++ " GB"
+                        show (fromIntegral some / 1024) ++ " KiB"
                     some -> show some ++ " B"
                 total = case mainRead state + mainWrote state of
                     some | some >= 1024 * 1048576 -> 
-                        show (fromIntegral some / (1024 * 1048576)) ++ " GB"
+                        show (fromIntegral some / (1024 * 1048576)) ++ " GiB"
                     some | some >= 1048576 -> 
-                        show (fromIntegral  some / 1048576) ++ " MB"
+                        show (fromIntegral  some / 1048576) ++ " MiB"
                     some | some >= 1024 -> 
-                        show (fromIntegral  some / 1024) ++ " GB"
+                        show (fromIntegral  some / 1024) ++ " KiB"
                     some -> show some ++ " B"
             syslogInfo $! "session closed. readed: " ++ readed ++ 
                 ", wrote: " ++ wrote ++ ", total: " ++ total
