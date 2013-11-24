@@ -113,10 +113,15 @@ serverSupervisor = do
             lift $! procFinish outbox
             lift procRunning >>= left
         handleServiceMessage (Just (ProcInitFailure cpid e _ outbox)) = do
-            liftIO $! putStrLn $! "ERROR: " ++ show e
-            lift $! syslogError $! "supervisor: init of " ++ show cpid ++ 
-                " failed with: " ++ show e
             lift $! procFinish outbox
+            Just ls <- lift localState
+            let PortNumber port = serverPort ls
+                !newport = PortNumber (port + 1)
+            lift $! setLocalState $! Just $! ls{ serverPort = newport}
+            me <- lift $! self
+            lift $! spawn $! procWithSubscriber me $! 
+                procWithBracket (serverInit newport me) serverShutdown $! 
+                proc $! serverWorker
             lift procRunning >>= left
     mreq <- runEitherT $! do
         handleChildLinkMessage $! fromMessage msg
