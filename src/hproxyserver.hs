@@ -60,7 +60,7 @@ getMainOptions argv =
 
 main = withSocketsDo $! runHEPGlobal $! procWithSupervisor (H.proc superLogAndExit) $! 
     procWithBracket mainInit mainShutdown $! H.proc $! do
-        mmsg <- receiveAfter 20000000
+        mmsg <- receiveAfter 20000
         case mmsg of
             Nothing-> procFinished
             Just msg -> case fromMessage msg of
@@ -135,7 +135,8 @@ mainInit = do
                             (PortNumber $! fromIntegral $! configTCPPortsBase config)
                             ( \x-> H.send me $! MainServerReceived x)
                     liftIO $! putStrLn $! "OK " ++ show port
-                    syslogInfo "TCP server started"
+                    syslogInfo $! "TCP server started on port " ++ 
+                        show port
                     procRunning
     
     
