@@ -34,8 +34,10 @@ options =
     ]
     
 getDestFlag:: String-> MainFlag
-getDestFlag str = let Right parsed = parse parseAddrPort "arg" ("addr "++str)
-    in FlagDestination $! parsed
+getDestFlag str = let parsed = parse parseAddrPort "arg" ("addr "++str)
+    in case parsed of
+        Right dest -> FlagDestination $! dest
+        Left some -> error $! show some
 
 getMainOptions:: [String]-> IO [MainFlag]
 getMainOptions argv =
