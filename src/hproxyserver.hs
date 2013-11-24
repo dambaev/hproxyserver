@@ -18,8 +18,7 @@ import System.Environment
 import System.Console.GetOpt
 
 data MainState = MainState
-    { uuid:: UUID -- session UUID
-    , proxySession:: ProxySession
+    { proxySession:: ProxySession
     }
     deriving (Eq, Show, Typeable)
 instance HEPLocalState MainState
@@ -79,7 +78,8 @@ superLogAndExit = do
 
 mainInit:: HEPProc
 mainInit = do
-    startSyslog "hproxyserver"
+    !myuuid <- liftIO $! nextRandom
+    startSyslog $! "hproxyserver-" ++ show myuuid
     generateProxySession
     procRunning
     
@@ -93,8 +93,6 @@ mainShutdown = do
 
 generateProxySession:: HEP ()
 generateProxySession = do
-    !myuuid <- liftIO $! nextRandom
-    syslogInfo $! "session uuid: " ++ show myuuid
     eusersid <- liftIO $! getCurrentUserSID
     case eusersid of
         Left e -> liftIO $! ioError $! userError e
