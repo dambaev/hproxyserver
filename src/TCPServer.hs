@@ -120,9 +120,10 @@ serverSupervisor = do
                 !newport = PortNumber (port + 1)
             lift $! setLocalState $! Just $! ls{ serverPort = newport}
             me <- lift $! self
-            lift $! spawn $! procWithSubscriber me $! 
+            pid <- lift $! spawn $! procWithSubscriber me $! 
                 procWithBracket (serverInit newport me) serverShutdown $! 
                 proc $! serverWorker
+            lift $! addSubscribe pid
             lift procRunning >>= left
     mreq <- runEitherT $! do
         handleChildLinkMessage $! fromMessage msg
