@@ -32,6 +32,14 @@ data WorkerState = WorkerState
     deriving Typeable
 instance HEPLocalState WorkerState
 
+data ClientState = ClientState
+    { clientHandle :: Handle
+    , clientBuffer :: Ptr CChar
+    }
+    deriving Typeable
+instance HEPLocalState ClientState
+
+
 data WorkerMessage = WorkerStop
                    | WorkerSetConsumer !Handle
     deriving Typeable
@@ -41,11 +49,20 @@ data WorkerFeedback = WorkerStarted !PortID
     deriving Typeable
 instance Message WorkerFeedback
 
+data ClientFeedback = ClientStarted !Handle
+    deriving Typeable
+instance Message ClientFeedback
+
+
 data SupervisorCommand = SetWorkerConsumer !Handle
     deriving Typeable
 instance Message SupervisorCommand
 
 data SupervisorAnswer = ServerStarted !PortID
+
+data ClientCommand = ClientStop
+    deriving Typeable
+instance Message ClientCommand
 
 bufferSize = 64*1024
 
@@ -224,3 +241,59 @@ serverSupervisor receiveAction onOpen = do
         Left some -> return some
         Right some -> return some
 
+startTCPClient:: String
+              -> PortID
+              -> Handle
+              -> (Int-> HEP ())
+              -> HEP (Handle, Pid)
+startTCPClient addr port hserver receiveAction = do
+    !inbox <- liftIO newMBox
+    sv <- spawn $! procWithBracket (clientInit addr port inbox) 
+        clientShutdown $! proc $! clientWorker hserver receiveAction 
+    ClientStarted !h <- liftIO $! receiveMBox inbox
+    return (h,sv)
+
+clientInit:: String-> PortID-> MBox ClientFeedback-> HEPProc
+clientInit addr port outbox = do
+    h <- liftIO $! connectTo addr port 
+    liftIO $! hSetBuffering h NoBuffering
+    liftIO $! hSetBinaryMode h True
+    buff <- liftIO $! mallocBytes bufferSize
+    setLocalState $! Just $! ClientState
+        { clientHandle = h
+        , clientBuffer = buff
+        }
+    liftIO $! sendMBox outbox $! ClientStarted h
+    procRunning
+
+clientShutdown:: HEPProc
+clientShutdown = do
+    ls <- localState
+    case ls of
+        Nothing-> procFinished
+        Just some -> do
+            liftIO $! do
+                hClose (clientHandle some)
+                free (clientBuffer some)
+            procFinished
+
+clientWorker:: Handle-> (Int-> HEP ()) -> HEPProc
+clientWorker consumer receiveAction = do
+    mmsg <- receiveMaybe
+    case mmsg of
+        Just msg -> case fromMessage msg of
+            Nothing-> procRunning
+            Just ClientStop -> procFinished
+        Nothing-> do
+            Just ls <- localState
+            let !h = clientHandle ls
+                !ptr = clientBuffer ls
+            !read <- liftIO $! hGetBufSome h ptr bufferSize
+            case read of
+                0 -> procFinished
+                _ -> do
+                    liftIO $! hPutBuf consumer ptr read
+                    receiveAction read
+                    procRunning
+            
+    

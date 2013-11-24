@@ -29,9 +29,16 @@ import System.IO
 
 data MainState = MainState
     { proxySession:: ProxySession
+    , mainServer:: Maybe Pid
+    , mainClient :: Maybe Pid
     }
     deriving (Eq, Show, Typeable)
 instance HEPLocalState MainState
+
+defaultMainState = MainState
+    { mainServer = Nothing
+    , mainClient = Nothing
+    }
 
 data MainFlag = FlagDestination Destination
     deriving Show
@@ -66,11 +73,26 @@ main = withSocketsDo $! runHEPGlobal $! procWithSupervisor (H.proc superLogAndEx
         case mmsg of
             Nothing-> procFinished
             Just msg -> case fromMessage msg of
+                Nothing-> procRunning
                 Just (MainServerReceived !read) -> do
                     syslogInfo $! "client sent " ++ show read
                     procRunning
                 Just (MainClientReceived !read) -> do
                     syslogInfo $! "client received "++ show read
+                    procRunning
+                Just (MainServerConnection hserver) -> do
+                    Just ls <- localState
+                    me <- self
+                    let session = proxySession ls
+                        DestinationAddrPort (IPAddress addr) port =     
+                            sessionDestination session
+                        Just server = mainServer ls
+                    (!hclient, clientpid) <- 
+                        startTCPClient addr 
+                            (PortNumber $! fromIntegral port) 
+                            hserver
+                            (\x-> H.send me $! MainClientReceived x)
+                    setConsumer server hclient
                     procRunning
         
 
@@ -140,6 +162,8 @@ mainInit = do
                     liftIO $! putStrLn $! "OK " ++ show port
                     syslogInfo $! "TCP server started on port " ++ 
                         show port
+                    Just ls <- localState
+                    setLocalState $! Just $! ls { mainServer = Just servpid}
                     procRunning
     
     
@@ -181,7 +205,7 @@ generateProxySession = do
             , sessionTime = time
             , sessionDestination = dest
             }
-    setLocalState $! Just $! MainState
+    setLocalState $! Just $! defaultMainState
         { proxySession = ret
         }
     return ret
