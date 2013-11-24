@@ -14,6 +14,8 @@ import Data.HProxy.Rules
 import Control.Monad.Trans
 import Control.Monad.Trans.Either
 import Network.AD.SID
+import System.Environment
+import System.Console.GetOpt
 
 data MainState = MainState
     { uuid:: UUID -- session UUID
@@ -21,6 +23,21 @@ data MainState = MainState
     }
     deriving (Eq, Show, Typeable)
 instance HEPLocalState MainState
+
+data MainFlag = FlagDestination String
+    deriving Show
+
+options :: [OptDescr MainFlag]
+options = 
+    [ Option ['d']     ["dest"]  (ReqArg FlagDestination "DEST") "destination"
+    ]
+
+getMainOptions:: [String]-> IO [MainFlag]
+getMainOptions argv =
+    case getOpt Permute options argv of
+        (!o,n,[]  ) -> return o
+        (_,_,errs) -> ioError (userError (concat errs ++ usageInfo header options))
+            where header = "Usage: hproxyserver [OPTION...] files..."
 
 main = runHEPGlobal $! procWithSupervisor (H.proc superLogAndExit) $! 
     procWithBracket mainInit mainShutdown $! H.proc $! do
@@ -82,6 +99,9 @@ generateProxySession = do
         Left e -> liftIO $! ioError $! userError e
         Right usersid -> do
             syslogInfo $! "current user SID " ++ show usersid
-            groups <- liftIO $! getCurrentGroupsSIDs usersid
+            Right groups <- liftIO $! getCurrentGroupsSIDs usersid
             syslogInfo $! "current user's  groups' SID " ++ show groups
+            args <- liftIO $! getArgs >>= getMainOptions
+            liftIO $! print args
+            return ()
 
