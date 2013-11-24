@@ -55,6 +55,7 @@ instance Message ClientFeedback
 
 
 data SupervisorCommand = SetWorkerConsumer !Handle
+                       | StopServer
     deriving Typeable
 instance Message SupervisorCommand
 
@@ -158,13 +159,17 @@ serverWorker receiveAction = do
                     liftIO $! yield >> threadDelay 500000
                     procRunning
                 Just hout -> do
-                    !read <- liftIO $! hGetBufSome h ptr bufferSize
-                    case read of
-                        0 -> procFinished
-                        _ -> do
-                            liftIO $! hPutBuf hout ptr read
-                            receiveAction read
-                            procRunning
+                    isready <- liftIO $! hReady h
+                    if isready == False
+                        then procRunning
+                        else do
+                            !read <- liftIO $! hGetBufSome h ptr bufferSize
+                            case read of
+                                0 -> procFinished
+                                _ -> do
+                                    liftIO $! hPutBuf hout ptr read
+                                    receiveAction read
+                                    procRunning
 
 
 serverSupShutdown = procFinished
@@ -186,9 +191,9 @@ serverSupervisor receiveAction onOpen = do
         handleServiceMessage:: Maybe SupervisorMessage -> EitherT HEPProcState HEP HEPProcState
         handleServiceMessage Nothing = lift procRunning >>= right
         handleServiceMessage (Just (ProcWorkerFailure cpid e _ outbox)) = do
-            liftIO $! putStrLn $! "ERROR: " ++ show e
+            -- liftIO $! putStrLn $! "ERROR: " ++ show e
             lift $! syslogError $! "supervisor: worker " ++ show cpid ++ 
-                " failed with: " ++ show e ++ ". It will be recovered"
+                " failed with: " ++ show e
             lift $! procFinish outbox
             lift procRunning >>= left
         handleServiceMessage (Just (ProcInitFailure cpid e _ outbox)) = 
@@ -231,6 +236,13 @@ serverSupervisor receiveAction onOpen = do
                 H.send worker $! WorkerSetConsumer handle
                 procRunning
                 )
+        handleSupervisorCommand (Just StopServer) = do
+            left =<< lift (do
+                Just ls <- localState
+                let !worker = supervisorWorker ls
+                H.send worker $! WorkerStop 
+                procRunning
+                )
 
     mreq <- runEitherT $! do
         handleChildLinkMessage $! fromMessage msg
@@ -248,7 +260,8 @@ startTCPClient:: String
               -> HEP (Handle, Pid)
 startTCPClient addr port hserver receiveAction = do
     !inbox <- liftIO newMBox
-    sv <- spawn $! procWithBracket (clientInit addr port inbox) 
+    sv <- spawn $! procWithSupervisor (proc clientSupervisor) $! 
+        procWithBracket (clientInit addr port inbox) 
         clientShutdown $! proc $! clientWorker hserver receiveAction 
     ClientStarted !h <- liftIO $! receiveMBox inbox
     return (h,sv)
@@ -288,12 +301,59 @@ clientWorker consumer receiveAction = do
             Just ls <- localState
             let !h = clientHandle ls
                 !ptr = clientBuffer ls
-            !read <- liftIO $! hGetBufSome h ptr bufferSize
-            case read of
-                0 -> procFinished
-                _ -> do
-                    liftIO $! hPutBuf consumer ptr read
-                    receiveAction read
-                    procRunning
+            !isready  <- liftIO $! hReady h
+            if isready == False 
+                then procRunning
+                else do
+                    !read <- liftIO $! hGetBufSome h ptr bufferSize
+                    case read of
+                        0 -> procFinished
+                        _ -> do
+                            liftIO $! hPutBuf consumer ptr read
+                            receiveAction read
+                            procRunning
             
+{- stopTCPServer:: Pid-> HEP ()
+stopTCPServer pid = do
+    H.send pid StopServer
     
+stopTCPClient:: Pid-> HEP ()
+stopTCPClient pid = do
+    -} 
+
+clientSupervisor:: HEPProc
+clientSupervisor = do
+    msg <- receive
+    let handleChildLinkMessage:: Maybe LinkedMessage -> EitherT HEPProcState HEP HEPProcState
+        handleChildLinkMessage Nothing = lift procRunning >>= right
+        handleChildLinkMessage (Just (ProcessFinished pid)) = do
+            lift $! syslogInfo $! "supervisor: client thread exited "
+            subscribed <- lift getSubscribed
+            case subscribed of
+                [] -> lift procFinished >>= left
+                _ -> lift procRunning >>= left
+        
+        handleServiceMessage:: Maybe SupervisorMessage -> EitherT HEPProcState HEP HEPProcState
+        handleServiceMessage Nothing = right =<< lift procRunning
+        handleServiceMessage (Just (ProcWorkerFailure cpid e _ outbox)) = do
+            left =<< lift (do
+                syslogError $! "supervisor: client " ++ show cpid ++ 
+                    " failed with: " ++ show e
+                procFinish outbox
+                procRunning
+                )
+        handleServiceMessage (Just (ProcInitFailure cpid e _ outbox)) = do
+            left =<< lift (do
+                liftIO $! putStrLn $! "ERROR: " ++ show e
+                syslogError $! "supervisor: client init " ++ show cpid ++ 
+                    " failed with: " ++ show e
+                procFinish outbox
+                procRunning
+                )
+    mreq <- runEitherT $! do
+        handleChildLinkMessage $! fromMessage msg
+        handleServiceMessage $! fromMessage msg 
+        
+    case mreq of
+        Left some -> return some
+        Right some -> return some

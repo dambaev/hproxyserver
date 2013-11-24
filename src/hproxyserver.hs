@@ -54,6 +54,8 @@ data MainMessage = MainServerReceived Int
                  | MainServerConnection !Handle
     deriving Typeable
 instance Message MainMessage
+
+
 options :: [OptDescr MainFlag]
 options = 
     [ Option ['d']     ["dest"]  (ReqArg getDestFlag "addr:port") "destination"
@@ -120,7 +122,7 @@ superLogAndExit = do
     let handleChildLinkMessage:: Maybe LinkedMessage -> EitherT HEPProcState HEP HEPProcState
         handleChildLinkMessage Nothing = lift procRunning >>= right
         handleChildLinkMessage (Just (ProcessFinished pid)) = do
-            lift $! syslogInfo $! "supervisor: spotted client exit " ++ show pid
+            lift $! syslogInfo $! "supervisor: main thread exited "
             subscribed <- lift getSubscribed
             case subscribed of
                 [] -> lift procFinished >>= left
@@ -194,32 +196,15 @@ mainShutdown = do
     _ <- case ls of
         Nothing-> return ()
         Just state -> do
-            let readed = case mainRead state of
-                    some | some >= 1024 * 1048576 -> 
-                        show (fromIntegral some / (1024 * 1048576)) ++ " GiB"
-                    some | some >= 1048576 -> 
-                        show (fromIntegral some / 1048576) ++ " MiB"
-                    some | some >= 1024 -> 
-                        show (fromIntegral some / 1024) ++ " KiB"
-                    some -> show some ++ " B"
-                wrote = case mainWrote state of
-                    some | some >= 1024 * 1048576 -> 
-                        show (fromIntegral some / (1024 * 1048576)) ++ " GiB"
-                    some | some >= 1048576 -> 
-                        show (fromIntegral some / 1048576) ++ " MiB"
-                    some | some >= 1024 -> 
-                        show (fromIntegral some / 1024) ++ " KiB"
-                    some -> show some ++ " B"
-                total = case mainRead state + mainWrote state of
-                    some | some >= 1024 * 1048576 -> 
-                        show (fromIntegral some / (1024 * 1048576)) ++ " GiB"
-                    some | some >= 1048576 -> 
-                        show (fromIntegral  some / 1048576) ++ " MiB"
-                    some | some >= 1024 -> 
-                        show (fromIntegral  some / 1024) ++ " KiB"
-                    some -> show some ++ " B"
+            let readed = show (mainRead state) ++ " B"
+                wrote = show (mainWrote state) ++ " B"
+                total = show (mainRead state + mainWrote state) ++ " B"
             syslogInfo $! "session closed. readed: " ++ readed ++ 
                 ", wrote: " ++ wrote ++ ", total: " ++ total
+            let Just server = mainServer state
+                Just client = mainClient state
+            -- stopTCPServer 
+            return ()
     stopSyslog
     procFinished
 
