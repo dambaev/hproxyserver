@@ -198,6 +198,9 @@ serverSupervisor receiveAction onOpen = do
                     Just (IOError{ioe_type = ResourceVanished}) -> do
                         procFinish outbox
                         procRunning
+                    Just (IOError{ioe_type = EOF}) -> do
+                        procFinish outbox
+                        procRunning
                     _ -> do
                         syslogError $! "supervisor: server " ++ show cpid ++ 
                             " failed with: " ++ show e
@@ -349,6 +352,9 @@ clientSupervisor = do
                     Just (IOError{ioe_type = ResourceVanished}) -> do
                         procFinish outbox
                         procFinished
+                    Just (IOError{ioe_type = EOF}) -> do
+                        procFinish outbox
+                        procRunning
                     _ -> do
                         syslogError $! "supervisor: client " ++ show cpid ++ 
                             " failed with: " ++ show e
