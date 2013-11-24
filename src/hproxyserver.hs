@@ -21,6 +21,8 @@ import Network.AD.SID
 import System.Environment
 import System.Console.GetOpt
 import Text.ParserCombinators.Parsec
+import Network
+import Config
 
 
 data MainState = MainState
@@ -51,7 +53,7 @@ getMainOptions argv =
         (_,_,errs) -> ioError (userError (concat errs ++ usageInfo header options))
     where header = "Usage: hproxyserver [OPTION...]"
 
-main = runHEPGlobal $! procWithSupervisor (H.proc superLogAndExit) $! 
+main = withSocketsDo $! runHEPGlobal $! procWithSupervisor (H.proc superLogAndExit) $! 
     procWithBracket mainInit mainShutdown $! H.proc $! do
         procFinished
 
@@ -92,7 +94,13 @@ mainInit:: HEPProc
 mainInit = do
     !myuuid <- liftIO $! nextRandom
     startSyslog $! "hproxyserver-" ++ show myuuid
+    syslogInfo "loading config"
+    config <- liftIO $! loadConfig "/etc/hproxy/config"
+    syslogInfo "generating ProxySession info"
     generateProxySession
+    syslogInfo "loading rules"
+    !rules <- liftIO $! parseRuleDir (configRulesDir config)
+    syslogInfo $! "loaded " ++ (show $ length rules) ++ " rule-files"
     procRunning
     
     

@@ -16,8 +16,8 @@ cabal-version:       >=1.8
 
 executable hproxyserver
   -- exposed-modules:     
-  -- other-modules:    
+  other-modules:    Config
   main-is: hproxyserver.hs
   hs-source-dirs: src   
-  build-depends:       base, hep, hepsyslog, process, uuid, hproxyrules, mtl, sid, either, parsec, time
+  build-depends:       base, hep, hepsyslog, process, uuid, hproxyrules, mtl, sid, either, parsec, time, network
   ghc-options:         -O -rtsopts -fforce-recomp -threaded
