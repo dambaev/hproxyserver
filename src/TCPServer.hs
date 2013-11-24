@@ -2,7 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 module TCPServer where
 
-import Control.Concurrent.HEP
+import Control.Concurrent.HEP as H
 import Control.Concurrent.HEP.Syslog
 import Network as N
 import Foreign.Marshal.Alloc
@@ -17,6 +17,8 @@ import Data.Typeable
 
 data SupervisorState = SupervisorState
     { serverPort:: PortID
+    , supervisorStarter:: MBox SupervisorAnswer
+    , supervisorWorker:: Pid
     }
     deriving Typeable
 instance HEPLocalState SupervisorState
@@ -24,26 +26,54 @@ instance HEPLocalState SupervisorState
 data WorkerState = WorkerState
     { workerHandle :: Handle
     , workerBuffer :: Ptr CChar
+    , workerConsumer:: Maybe Handle
     }
     deriving Typeable
 instance HEPLocalState WorkerState
 
+data WorkerMessage = WorkerStop
+                   | WorkerSetConsumer !Handle
+    deriving Typeable
+instance Message WorkerMessage
+
+data WorkerFeedback = WorkerStarted !Handle
+    deriving Typeable
+instance Message WorkerFeedback
+
+data SupervisorCommand = SetWorkerConsumer !Handle
+    deriving Typeable
+instance Message SupervisorCommand
+
+data SupervisorAnswer = WorkerHandle !Handle
+
 bufferSize = 64*1024
 
-startTCPServerBasePort:: PortID-> HEP Pid
+startTCPServerBasePort:: PortID-> HEP (Handle, Pid)
 startTCPServerBasePort base = do
-    sv <- spawn $! procWithBracket (serverSupInit base) serverSupShutdown $! proc serverSupervisor
-    return sv
+    !input <- liftIO newMBox
+    sv <- spawn $! procWithBracket (serverSupInit base input) 
+        serverSupShutdown $! proc serverSupervisor
+    WorkerHandle !h <- liftIO $! receiveMBox input
+    return (h, sv)
+
+setConsumer:: Pid-> Handle-> HEP ()
+setConsumer pid !h = do
+    H.send pid $! SetWorkerConsumer h
+    return ()
+
     
-    
-serverSupInit:: PortID-> HEPProc
-serverSupInit port = do
-    setLocalState $! Just $! SupervisorState{serverPort = port}
+serverSupInit:: PortID-> MBox SupervisorAnswer-> HEPProc
+serverSupInit port starter = do
     me <- self
     pid <- spawn $! procWithSubscriber me $! 
         procWithBracket (serverInit port me) serverShutdown $! 
         proc $! serverWorker
     addSubscribe pid
+    setLocalState $! Just $! SupervisorState
+        { serverPort = port
+        , supervisorStarter = starter
+        , supervisorWorker = pid
+        }
     procRunning
     
     
@@ -60,7 +90,9 @@ serverInit port svpid = do
     setLocalState $! Just $! WorkerState
         { workerHandle = h
         , workerBuffer = buff
+        , workerConsumer = Nothing
         }
+    H.send svpid $! WorkerStarted h
     liftIO $! sClose lsocket
     procRunning
     
@@ -79,18 +111,30 @@ serverShutdown = do
 
 serverWorker:: HEPProc
 serverWorker = do
-    msg <- receiveMaybe
-    case msg of
+    mmsg <- receiveMaybe
+    case mmsg of
+        Just msg -> do
+            case fromMessage msg of
+                Just WorkerStop -> procFinished
+                Just (WorkerSetConsumer !hout) -> do
+                    Just ls <- localState
+                    setLocalState $! Just $! ls { workerConsumer = Just hout}
+                    procRunning
         Nothing-> do
             Just ls <- localState
             let !h = workerHandle ls
                 !ptr = workerBuffer ls
-            !read <- liftIO $! hGetBufSome h ptr bufferSize
-            case read of
-                0 -> procFinished
-                _ -> do
-                    syslogInfo $! "readed " ++ show read ++ " bytes"
-                    procRunning
+                !consumer = workerConsumer ls
+            case consumer of
+                Nothing-> procRunning
+                Just hout -> do
+                    !read <- liftIO $! hGetBufSome h ptr bufferSize
+                    case read of
+                        0 -> procFinished
+                        _ -> do
+                            syslogInfo $! "readed " ++ show read ++ " bytes"
+                            liftIO $! hPutBuf hout ptr read
+                            procRunning
 
 
 serverSupShutdown = procFinished
@@ -115,24 +159,50 @@ serverSupervisor = do
                 " failed with: " ++ show e ++ ". It will be recovered"
             lift $! procFinish outbox
             lift procRunning >>= left
-        handleServiceMessage (Just (ProcInitFailure cpid e _ outbox)) = do
-            lift $! do
+        handleServiceMessage (Just (ProcInitFailure cpid e _ outbox)) = 
+            left =<< lift ( do
                 procFinish outbox
                 Just ls <- localState
                 let PortNumber port = serverPort ls
                     !newport = PortNumber (port + 1)
-                setLocalState $! Just $! ls{ serverPort = newport}
                 me <- self
                 syslogInfo $! "port " ++ show port ++ " is busy"
                 pid <- spawn $! procWithSubscriber me $! 
                     procWithBracket (serverInit newport me) serverShutdown $! 
                     proc $! serverWorker
                 addSubscribe pid
-            lift procRunning >>= left
+                setLocalState $! Just $! ls
+                    { serverPort = newport
+                    , supervisorWorker = pid
+                    }
+                procRunning
+                )
+
+        handleWorkerFeedback:: Maybe WorkerFeedback-> EitherT HEPProcState HEP HEPProcState
+        handleWorkerFeedback Nothing = right =<< lift procRunning
+        handleWorkerFeedback (Just (WorkerStarted !handle)) = do
+            left =<< lift (do
+                Just ls <- localState
+                let !starter = supervisorStarter ls
+                liftIO$! sendMBox starter (WorkerHandle handle)
+                procRunning
+                )
+
+        handleSupervisorCommand:: Maybe SupervisorCommand-> EitherT HEPProcState HEP HEPProcState
+        handleSupervisorCommand Nothing = right =<< lift procRunning
+        handleSupervisorCommand (Just (SetWorkerConsumer !handle)) = do
+            left =<< lift (do
+                Just ls <- localState
+                let !worker = supervisorWorker ls
+                H.send worker $! WorkerSetConsumer handle
+                procRunning
+                )
+
     mreq <- runEitherT $! do
         handleChildLinkMessage $! fromMessage msg
         handleServiceMessage $! fromMessage msg 
-        
+        handleWorkerFeedback $! fromMessage msg
+        handleSupervisorCommand $! fromMessage msg
     case mreq of
         Left some -> return some
         Right some -> return some

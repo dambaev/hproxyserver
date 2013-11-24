@@ -116,7 +116,8 @@ mainInit = do
             case rulePermission rule of
                 RuleDeny -> error "denied"
                 RuleAllow -> do
-                    startTCPServerBasePort $! PortNumber 3000
+                    (hserver, servpid) <- startTCPServerBasePort $! PortNumber $! fromIntegral $! configTCPPortsBase config
+                    syslogInfo "TCP server started"
                     procRunning
     
     
