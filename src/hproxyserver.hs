@@ -97,11 +97,20 @@ mainInit = do
     syslogInfo "loading config"
     config <- liftIO $! loadConfig "/etc/hproxy/config"
     syslogInfo "generating ProxySession info"
-    generateProxySession
+    !session <- generateProxySession
     syslogInfo "loading rules"
     !rules <- liftIO $! parseRuleDir (configRulesDir config)
     syslogInfo $! "loaded " ++ (show $ length rules) ++ " rule-files"
-    procRunning
+    
+    let !matched = matchSessionRules session rules
+    case matched of
+        Nothing-> do
+            failConnection "no matching rule found"
+            error "no matching rule found"
+        Just (!fname, !line, !rule) -> do
+            syslogInfo $! "matched rule (" ++ fname ++ ":" ++ 
+                show line ++ "): " ++ show rule
+            procRunning
     
     
 mainShutdown:: HEPProc
@@ -111,7 +120,7 @@ mainShutdown = do
 
     
 
-generateProxySession:: HEP ()
+generateProxySession:: HEP ProxySession
 generateProxySession = do
     utctime <- liftIO $! getCurrentTime
     tz <- liftIO $! getCurrentTimeZone
@@ -134,8 +143,7 @@ generateProxySession = do
     syslogInfo $! "current user SID " ++ show usersid
     Right groups <- liftIO $! getCurrentGroupsSIDs usersid
     syslogInfo $! "current user's  groups' SID " ++ show groups
-    setLocalState $! Just $! MainState
-        { proxySession = ProxySession
+    let ret = ProxySession
             { sessionUserSID = usersid
             , sessionGroupsSIDs = groups
             , sessionDate = date
@@ -143,6 +151,12 @@ generateProxySession = do
             , sessionTime = time
             , sessionDestination = dest
             }
+    setLocalState $! Just $! MainState
+        { proxySession = ret
         }
-    return ()
+    return ret
 
+failConnection:: String-> HEP ()
+failConnection str = do
+    liftIO $! putStrLn $! "ERROR: " ++ str
+    
