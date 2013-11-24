@@ -87,12 +87,15 @@ main = withSocketsDo $! runHEPGlobal $! procWithSupervisor (H.proc superLogAndEx
                         DestinationAddrPort (IPAddress addr) port =     
                             sessionDestination session
                         Just server = mainServer ls
+                    syslogInfo $! "starting client to " ++ 
+                        show addr ++ ":" ++ show port
                     (!hclient, clientpid) <- 
                         startTCPClient addr 
                             (PortNumber $! fromIntegral port) 
                             hserver
                             (\x-> H.send me $! MainClientReceived x)
                     setConsumer server hclient
+                    syslogInfo "client started"
                     procRunning
         
 
