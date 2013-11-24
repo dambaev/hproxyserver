@@ -35,6 +35,10 @@ instance HEPLocalState MainState
 data MainFlag = FlagDestination Destination
     deriving Show
 
+data MainMessage = MainServerReceived Int
+                 | MainClientReceived Int
+    deriving Typeable
+instance Message MainMessage
 options :: [OptDescr MainFlag]
 options = 
     [ Option ['d']     ["dest"]  (ReqArg getDestFlag "addr:port") "destination"
@@ -56,8 +60,17 @@ getMainOptions argv =
 
 main = withSocketsDo $! runHEPGlobal $! procWithSupervisor (H.proc superLogAndExit) $! 
     procWithBracket mainInit mainShutdown $! H.proc $! do
-        liftIO $! threadDelay $! 120000000
-        procFinished
+        mmsg <- receiveAfter 20000000
+        case mmsg of
+            Nothing-> procFinished
+            Just msg -> case fromMessage msg of
+                Just (MainServerReceived !read) -> do
+                    syslogInfo $! "client sent " ++ show read
+                    procRunning
+                Just (MainClientReceived !read) -> do
+                    syslogInfo $! "client received "++ show read
+                    procRunning
+        
 
 superLogAndExit:: HEPProc
 superLogAndExit = do
@@ -116,7 +129,12 @@ mainInit = do
             case rulePermission rule of
                 RuleDeny -> error "denied"
                 RuleAllow -> do
-                    (hserver, servpid) <- startTCPServerBasePort $! PortNumber $! fromIntegral $! configTCPPortsBase config
+                    me <- self
+                    (hserver, servpid, (PortNumber port)) <- 
+                        startTCPServerBasePort 
+                            (PortNumber $! fromIntegral $! configTCPPortsBase config)
+                            ( \x-> H.send me $! MainServerReceived x)
+                    liftIO $! putStrLn $! "OK " ++ show port
                     syslogInfo "TCP server started"
                     procRunning
     
