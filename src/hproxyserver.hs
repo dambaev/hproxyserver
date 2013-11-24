@@ -29,7 +29,7 @@ data MainFlag = FlagDestination String
 
 options :: [OptDescr MainFlag]
 options = 
-    [ Option ['d']     ["dest"]  (ReqArg FlagDestination "DEST") "destination addr:port"
+    [ Option ['d']     ["dest"]  (ReqArg FlagDestination "addr:port") "destination"
     ]
 
 getMainOptions:: [String]-> IO [MainFlag]
@@ -98,7 +98,8 @@ generateProxySession = do
     eusersid <- liftIO $! getCurrentUserSID
     case eusersid of
         Left e -> liftIO $! ioError $! userError e
-        Right usersid -> do
+        Right (username, usersid) -> do
+            syslogInfo $! "current user " ++ show username
             syslogInfo $! "current user SID " ++ show usersid
             Right groups <- liftIO $! getCurrentGroupsSIDs usersid
             syslogInfo $! "current user's  groups' SID " ++ show groups
