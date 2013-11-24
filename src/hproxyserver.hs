@@ -25,6 +25,7 @@ import Text.ParserCombinators.Parsec
 import Network
 import Config
 import TCPServer
+import System.IO
 
 data MainState = MainState
     { proxySession:: ProxySession
@@ -37,6 +38,7 @@ data MainFlag = FlagDestination Destination
 
 data MainMessage = MainServerReceived Int
                  | MainClientReceived Int
+                 | MainServerConnection !Handle
     deriving Typeable
 instance Message MainMessage
 options :: [OptDescr MainFlag]
@@ -130,10 +132,11 @@ mainInit = do
                 RuleDeny -> error "denied"
                 RuleAllow -> do
                     me <- self
-                    (hserver, servpid, (PortNumber port)) <- 
+                    (servpid, (PortNumber port)) <- 
                         startTCPServerBasePort 
                             (PortNumber $! fromIntegral $! configTCPPortsBase config)
                             ( \x-> H.send me $! MainServerReceived x)
+                            (\x-> H.send me $! MainServerConnection x)
                     liftIO $! putStrLn $! "OK " ++ show port
                     syslogInfo $! "TCP server started on port " ++ 
                         show port
