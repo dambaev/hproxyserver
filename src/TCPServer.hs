@@ -4,7 +4,7 @@ module TCPServer where
 
 import Control.Concurrent.HEP
 import Control.Concurrent.HEP.Syslog
-import Network
+import Network as N
 import Foreign.Marshal.Alloc
 import Foreign.Ptr
 import Foreign.C.Types
@@ -52,10 +52,8 @@ serverInit port svpid = do
     syslogInfo "worker started"
     lsocket <- liftIO $! listenOn port
     syslogInfo "listened on"
-    (_socket, SockAddrInet _ addr) <- liftIO $! S.accept lsocket
-    !host <- liftIO $! inet_ntoa addr
-    syslogInfo $! "accepted connection from " ++ host
-    h <- liftIO $! socketToHandle _socket ReadWriteMode
+    (h, host, _) <- liftIO $! N.accept lsocket
+    syslogInfo $! "accepted connection from " ++ show host
     buff <- liftIO $! mallocBytes bufferSize
     setLocalState $! Just $! WorkerState
         { workerHandle = h
