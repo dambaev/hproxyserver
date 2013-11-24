@@ -12,6 +12,7 @@ import Data.UUID.V4
 import Data.HProxy.Session
 import Data.HProxy.Rules
 import Control.Monad.Trans
+import Control.Monad.Trans.Either
 import Network.AD.SID
 
 data MainState = MainState
@@ -21,10 +22,42 @@ data MainState = MainState
     deriving (Eq, Show, Typeable)
 instance HEPLocalState MainState
 
-main = runHEPGlobal $! procWithBracket mainInit mainShutdown $! H.proc $! do
-    procFinished
+main = runHEPGlobal $! procWithSupervisor (H.proc superLogAndExit) $! 
+    procWithBracket mainInit mainShutdown $! H.proc $! do
+        procFinished
 
-
+superLogAndExit:: HEPProc
+superLogAndExit = do
+    msg <- receive
+    let handleChildLinkMessage:: Maybe LinkedMessage -> EitherT HEPProcState HEP HEPProcState
+        handleChildLinkMessage Nothing = lift procRunning >>= right
+        handleChildLinkMessage (Just (ProcessFinished pid)) = do
+            lift $! syslogInfo $! "supervisor: spotted client exit " ++ show pid
+            subscribed <- lift getSubscribed
+            case subscribed of
+                [] -> lift procFinished >>= left
+                _ -> lift procRunning >>= left
+        
+        handleServiceMessage:: Maybe SupervisorMessage -> EitherT HEPProcState HEP HEPProcState
+        handleServiceMessage Nothing = lift procRunning >>= right
+        handleServiceMessage (Just (ProcWorkerFailure cpid e _ outbox)) = do
+            lift $! syslogError $! "supervisor: worker " ++ show cpid ++ 
+                " failed with: " ++ show e ++ ". It will be recovered"
+            lift $! procFinish outbox
+            lift procRunning >>= left
+        handleServiceMessage (Just (ProcInitFailure cpid e _ outbox)) = do
+            lift $! syslogError $! "supervisor: init of " ++ show cpid ++ 
+                " failed with: " ++ show e
+            lift $! procFinish outbox
+            lift procRunning >>= left
+    mreq <- runEitherT $! do
+        handleChildLinkMessage $! fromMessage msg
+        handleServiceMessage $! fromMessage msg 
+        
+    case mreq of
+        Left some -> return some
+        Right some -> return some
+    
 
 mainInit:: HEPProc
 mainInit = do
@@ -44,6 +77,11 @@ generateProxySession:: HEP ()
 generateProxySession = do
     !myuuid <- liftIO $! nextRandom
     syslogInfo $! "session uuid: " ++ show myuuid
-    usersid <- liftIO $! getCurrentUserSID
-    syslogInfo $! "current user SID " ++ show usersid
+    eusersid <- liftIO $! getCurrentUserSID
+    case eusersid of
+        Left e -> liftIO $! ioError $! userError e
+        Right usersid -> do
+            syslogInfo $! "current user SID " ++ show usersid
+            groups <- liftIO $! getCurrentGroupsSIDs usersid
+            syslogInfo $! "current user's  groups' SID " ++ show groups
 
