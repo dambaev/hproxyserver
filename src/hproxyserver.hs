@@ -72,11 +72,13 @@ superLogAndExit = do
         handleServiceMessage:: Maybe SupervisorMessage -> EitherT HEPProcState HEP HEPProcState
         handleServiceMessage Nothing = lift procRunning >>= right
         handleServiceMessage (Just (ProcWorkerFailure cpid e _ outbox)) = do
+            liftIO $! putStrLn $! "ERROR: " ++ show e
             lift $! syslogError $! "supervisor: worker " ++ show cpid ++ 
                 " failed with: " ++ show e ++ ". It will be recovered"
             lift $! procFinish outbox
             lift procRunning >>= left
         handleServiceMessage (Just (ProcInitFailure cpid e _ outbox)) = do
+            liftIO $! putStrLn $! "ERROR: " ++ show e
             lift $! syslogError $! "supervisor: init of " ++ show cpid ++ 
                 " failed with: " ++ show e
             lift $! procFinish outbox
@@ -105,7 +107,6 @@ mainInit = do
     let !matched = matchSessionRules session rules
     case matched of
         Nothing-> do
-            failConnection "no matching rule found"
             error "no matching rule found"
         Just (!fname, !line, !rule) -> do
             syslogInfo $! "matched rule (" ++ fname ++ ":" ++ 
@@ -156,7 +157,4 @@ generateProxySession = do
         }
     return ret
 
-failConnection:: String-> HEP ()
-failConnection str = do
-    liftIO $! putStrLn $! "ERROR: " ++ str
     
