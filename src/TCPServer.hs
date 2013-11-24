@@ -40,9 +40,10 @@ serverSupInit:: PortID-> HEPProc
 serverSupInit port = do
     setLocalState $! Just $! SupervisorState{serverPort = port}
     me <- self
-    spawn $! procWithSubscriber me $! 
+    pid <- spawn $! procWithSubscriber me $! 
         procWithBracket (serverInit port me) serverShutdown $! 
         proc $! serverWorker
+    addSubscribe pid
     procRunning
     
     
