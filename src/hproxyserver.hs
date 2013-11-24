@@ -116,7 +116,7 @@ mainInit = do
             case rulePermission rule of
                 RuleDeny -> error "denied"
                 RuleAllow -> do
-                    startTCPServerBasePort $! PortNumber 22
+                    startTCPServerBasePort $! PortNumber 3000
                     procRunning
     
     
