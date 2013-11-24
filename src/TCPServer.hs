@@ -53,6 +53,8 @@ serverInit port svpid = do
     lsocket <- liftIO $! listenOn port
     syslogInfo "listened on"
     (h, host, _) <- liftIO $! N.accept lsocket
+    liftIO $! hSetBuffering h NoBuffering
+    liftIO $! hSetBinaryMode h True
     syslogInfo $! "accepted connection from " ++ show host
     buff <- liftIO $! mallocBytes bufferSize
     setLocalState $! Just $! WorkerState
