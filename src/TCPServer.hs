@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 module TCPServer where
 
+import Control.Concurrent
 import Control.Concurrent.HEP as H
 import Control.Concurrent.HEP.Syslog
 import Network as N
@@ -126,7 +127,9 @@ serverWorker = do
                 !ptr = workerBuffer ls
                 !consumer = workerConsumer ls
             case consumer of
-                Nothing-> procRunning
+                Nothing-> do
+                    liftIO $! yield >> threadDelay 1000000
+                    procRunning
                 Just hout -> do
                     !read <- liftIO $! hGetBufSome h ptr bufferSize
                     case read of
