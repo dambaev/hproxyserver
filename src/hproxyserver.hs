@@ -10,6 +10,8 @@ import Data.Typeable
 import Data.UUID
 import Data.UUID.V4
 import Data.Time.Clock
+import Data.Time.Calendar
+import Data.Time.Calendar.WeekDate
 import Data.Time.LocalTime
 import Data.HProxy.Session
 import Data.HProxy.Rules
@@ -107,15 +109,32 @@ generateProxySession = do
     tz <- liftIO $! getCurrentTimeZone
     let !localtime = utcToLocalTime tz utctime
     syslogInfo $! "now is " ++ show localtime
+    
+    let time = TimeHHMM (todHour tod) (todMin tod)
+        tod = localTimeOfDay localtime
+        date = let (y, m, d) = toGregorian lday
+               in DateYYYYMMDD (fromIntegral y) m d
+        lday = (localDay localtime)
+        (_, _, !weekday) = toWeekDate lday
+    syslogInfo $! "week day is " ++ show weekday
     FlagDestination dest <- liftIO $! getArgs >>= getMainOptions >>= return . head
     syslogInfo $! "destination: " ++ show dest
-    eusersid <- liftIO $! getCurrentUserSID
-    case eusersid of
-        Left e -> liftIO $! ioError $! userError e
-        Right (username, usersid) -> do
-            syslogInfo $! "current user " ++ show username
-            syslogInfo $! "current user SID " ++ show usersid
-            Right groups <- liftIO $! getCurrentGroupsSIDs usersid
-            syslogInfo $! "current user's  groups' SID " ++ show groups
-            return ()
+    (!username, !usersid) <- liftIO $! getCurrentUserSID >>= \x-> case x of
+        Left e  -> liftIO $! ioError $! userError e
+        Right some -> return some
+    syslogInfo $! "current user " ++ show username
+    syslogInfo $! "current user SID " ++ show usersid
+    Right groups <- liftIO $! getCurrentGroupsSIDs usersid
+    syslogInfo $! "current user's  groups' SID " ++ show groups
+    setLocalState $! Just $! MainState
+        { proxySession = ProxySession
+            { sessionUserSID = usersid
+            , sessionGroupsSIDs = groups
+            , sessionDate = date
+            , sessionWeekDay = weekday
+            , sessionTime = time
+            , sessionDestination = dest
+            }
+        }
+    return ()
 
