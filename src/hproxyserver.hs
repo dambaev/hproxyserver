@@ -56,7 +56,7 @@ getMainOptions argv =
 
 main = withSocketsDo $! runHEPGlobal $! procWithSupervisor (H.proc superLogAndExit) $! 
     procWithBracket mainInit mainShutdown $! H.proc $! do
-        liftIO $! threadDelay $! 10000000
+        liftIO $! threadDelay $! 120000000
         procFinished
 
 superLogAndExit:: HEPProc
