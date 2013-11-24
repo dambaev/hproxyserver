@@ -85,7 +85,7 @@ serverWorker = do
             Just ls <- localState
             let !h = workerHandle ls
                 !ptr = workerBuffer ls
-            !read <- liftIO $! hGetBuf h ptr bufferSize
+            !read <- liftIO $! hGetBufSome h ptr bufferSize
             case read of
                 0 -> procFinished
                 _ -> do
