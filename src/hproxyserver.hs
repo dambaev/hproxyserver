@@ -9,6 +9,8 @@ import System.Process
 import Data.Typeable
 import Data.UUID
 import Data.UUID.V4
+import Data.Time.Clock
+import Data.Time.LocalTime
 import Data.HProxy.Session
 import Data.HProxy.Rules
 import Control.Monad.Trans
@@ -101,6 +103,12 @@ mainShutdown = do
 
 generateProxySession:: HEP ()
 generateProxySession = do
+    utctime <- liftIO $! getCurrentTime
+    tz <- liftIO $! getCurrentTimeZone
+    let !localtime = utcToLocalTime tz utctime
+    syslogInfo $! "now is " ++ show localtime
+    FlagDestination dest <- liftIO $! getArgs >>= getMainOptions >>= return . head
+    syslogInfo $! "destination: " ++ show dest
     eusersid <- liftIO $! getCurrentUserSID
     case eusersid of
         Left e -> liftIO $! ioError $! userError e
@@ -109,7 +117,5 @@ generateProxySession = do
             syslogInfo $! "current user SID " ++ show usersid
             Right groups <- liftIO $! getCurrentGroupsSIDs usersid
             syslogInfo $! "current user's  groups' SID " ++ show groups
-            FlagDestination dest <- liftIO $! getArgs >>= getMainOptions >>= return . head
-            syslogInfo $! "destination: " ++ show dest
             return ()
 
