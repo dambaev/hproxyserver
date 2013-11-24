@@ -3,6 +3,8 @@
 module TCPServer where
 
 import Control.Concurrent
+import Control.Exception
+import GHC.IO.Exception
 import Control.Concurrent.HEP as H
 import Control.Concurrent.HEP.Syslog
 import Network as N
@@ -191,11 +193,17 @@ serverSupervisor receiveAction onOpen = do
         handleServiceMessage:: Maybe SupervisorMessage -> EitherT HEPProcState HEP HEPProcState
         handleServiceMessage Nothing = lift procRunning >>= right
         handleServiceMessage (Just (ProcWorkerFailure cpid e _ outbox)) = do
-            -- liftIO $! putStrLn $! "ERROR: " ++ show e
-            lift $! syslogError $! "supervisor: worker " ++ show cpid ++ 
-                " failed with: " ++ show e
-            lift $! procFinish outbox
-            lift procRunning >>= left
+            left =<< lift (do
+                case fromException e of
+                    Just (IOError{ioe_type = ResourceVanished}) -> do
+                        procFinish outbox
+                        procRunning
+                    _ -> do
+                        syslogError $! "supervisor: server " ++ show cpid ++ 
+                            " failed with: " ++ show e
+                        procFinish outbox
+                        procRunning
+                )
         handleServiceMessage (Just (ProcInitFailure cpid e _ outbox)) = 
             left =<< lift ( do
                 procFinish outbox
@@ -337,10 +345,15 @@ clientSupervisor = do
         handleServiceMessage Nothing = right =<< lift procRunning
         handleServiceMessage (Just (ProcWorkerFailure cpid e _ outbox)) = do
             left =<< lift (do
-                syslogError $! "supervisor: client " ++ show cpid ++ 
-                    " failed with: " ++ show e
-                procFinish outbox
-                procRunning
+                case fromException e of
+                    Just (IOError{ioe_type = ResourceVanished}) -> do
+                        procFinish outbox
+                        procFinished
+                    _ -> do
+                        syslogError $! "supervisor: client " ++ show cpid ++ 
+                            " failed with: " ++ show e
+                        procFinish outbox
+                        procRunning
                 )
         handleServiceMessage (Just (ProcInitFailure cpid e _ outbox)) = do
             left =<< lift (do
