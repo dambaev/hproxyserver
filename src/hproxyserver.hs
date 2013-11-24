@@ -102,7 +102,7 @@ generateProxySession = do
             Right groups <- liftIO $! getCurrentGroupsSIDs usersid
             syslogInfo $! "current user's  groups' SID " ++ show groups
             args <- liftIO $! getArgs >>= getMainOptions
-            liftIO $! print "args"
+            liftIO $! print "args:" 
             liftIO $! print args
             return ()
 
