@@ -31,13 +31,19 @@ data MainState = MainState
     { proxySession:: ProxySession
     , mainServer:: Maybe Pid
     , mainClient :: Maybe Pid
+    , mainConfig:: Maybe Config
+    , mainRead:: Integer
+    , mainWrote:: Integer
     }
-    deriving (Eq, Show, Typeable)
+    deriving (Typeable)
 instance HEPLocalState MainState
 
 defaultMainState = MainState
     { mainServer = Nothing
     , mainClient = Nothing
+    , mainConfig = Nothing
+    , mainRead = 0
+    , mainWrote = 0
     }
 
 data MainFlag = FlagDestination Destination
@@ -69,16 +75,25 @@ getMainOptions argv =
 
 main = withSocketsDo $! runHEPGlobal $! procWithSupervisor (H.proc superLogAndExit) $! 
     procWithBracket mainInit mainShutdown $! H.proc $! do
-        mmsg <- receiveAfter 20000
+        Just ls <- localState
+        let Just config = mainConfig ls
+            !timeout = configConnectionTimeout config
+        mmsg <- receiveAfter (timeout * 1000)
         case mmsg of
             Nothing-> procFinished
             Just msg -> case fromMessage msg of
                 Nothing-> procRunning
                 Just (MainServerReceived !read) -> do
-                    syslogInfo $! "client sent " ++ show read
+                    let !old = mainRead ls
+                    setLocalState $! Just $! ls 
+                        { mainRead = old + (fromIntegral read)
+                        }
                     procRunning
                 Just (MainClientReceived !read) -> do
-                    syslogInfo $! "client received "++ show read
+                    let !old = mainRead ls
+                    setLocalState $! Just $! ls 
+                        { mainWrote = old + (fromIntegral read)
+                        }
                     procRunning
                 Just (MainServerConnection hserver) -> do
                     Just ls <- localState
@@ -166,12 +181,45 @@ mainInit = do
                     syslogInfo $! "TCP server started on port " ++ 
                         show port
                     Just ls <- localState
-                    setLocalState $! Just $! ls { mainServer = Just servpid}
+                    setLocalState $! Just $! ls 
+                        { mainServer = Just servpid
+                        , mainConfig = Just config
+                        }
                     procRunning
     
     
 mainShutdown:: HEPProc
 mainShutdown = do
+    ls <- localState
+    _ <- case ls of
+        Nothing-> return ()
+        Just state -> do
+            let readed = case mainRead state of
+                    some | some > 1024 * 1048576 -> 
+                        show (fromIntegral some / (1024 * 1048576)) ++ " GB"
+                    some | some > 1048576 -> 
+                        show (fromIntegral some / 1048576) ++ " MB"
+                    some | some > 1024 -> 
+                        show (fromIntegral some / (1024 * 1048576)) ++ " GB"
+                    some -> show some ++ " B"
+                wrote = case mainWrote state of
+                    some | some > 1024 * 1048576 -> 
+                        show (fromIntegral some / (1024 * 1048576)) ++ " GB"
+                    some | some > 1048576 -> 
+                        show (fromIntegral some / 1048576) ++ " MB"
+                    some | some > 1024 -> 
+                        show (fromIntegral some / (1024 * 1048576)) ++ " GB"
+                    some -> show some ++ " B"
+                total = case mainRead state + mainWrote state of
+                    some | some > 1024 * 1048576 -> 
+                        show (fromIntegral some / (1024 * 1048576)) ++ " GB"
+                    some | some > 1048576 -> 
+                        show (fromIntegral  some / 1048576) ++ " MB"
+                    some | some > 1024 -> 
+                        show (fromIntegral  some / (1024 * 1048576)) ++ " GB"
+                    some -> show some ++ " B"
+            syslogInfo $! "session closed. readed: " ++ readed ++ 
+                ", wrote: " ++ wrote ++ ", total: " ++ total
     stopSyslog
     procFinished
 
