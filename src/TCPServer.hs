@@ -49,6 +49,7 @@ serverSupInit port = do
     
 serverInit:: PortID-> Pid-> HEPProc
 serverInit port svpid = do
+    syslogInfo "worker started"
     lsocket <- liftIO $! listenOn port
     (_socket, SockAddrInet _ addr) <- liftIO $! S.accept lsocket
     !host <- liftIO $! inet_ntoa addr
@@ -60,7 +61,6 @@ serverInit port svpid = do
         , workerBuffer = buff
         }
     liftIO $! sClose lsocket
-    syslogInfo "worker started"
     procRunning
     
     
@@ -121,6 +121,7 @@ serverSupervisor = do
                 !newport = PortNumber (port + 1)
             lift $! setLocalState $! Just $! ls{ serverPort = newport}
             me <- lift $! self
+            syslogInfo $! "port " ++ show port ++ " is busy"
             pid <- lift $! spawn $! procWithSubscriber me $! 
                 procWithBracket (serverInit newport me) serverShutdown $! 
                 proc $! serverWorker
