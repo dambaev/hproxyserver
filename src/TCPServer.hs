@@ -184,7 +184,7 @@ serverSupervisor receiveAction onOpen = do
     let handleChildLinkMessage:: Maybe LinkedMessage -> EitherT HEPProcState HEP HEPProcState
         handleChildLinkMessage Nothing = lift procRunning >>= right
         handleChildLinkMessage (Just (ProcessFinished pid)) = do
-            lift $! syslogInfo $! "supervisor: spotted client exit " ++ show pid
+            lift $! syslogInfo $! "supervisor: server thread exited"
             subscribed <- lift getSubscribed
             case subscribed of
                 [] -> lift procFinished >>= left
