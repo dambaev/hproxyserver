@@ -19,5 +19,5 @@ executable hproxyserver
   -- other-modules:    
   main-is: hproxyserver.hs
   hs-source-dirs: src   
-  build-depends:       base, hep, hepsyslog, process, uuid, hproxyrules, mtl, sid, either
+  build-depends:       base, hep, hepsyslog, process, uuid, hproxyrules, mtl, sid, either, parsec
   ghc-options:         -O -rtsopts -fforce-recomp -threaded

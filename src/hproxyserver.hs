@@ -16,6 +16,8 @@ import Control.Monad.Trans.Either
 import Network.AD.SID
 import System.Environment
 import System.Console.GetOpt
+import Text.ParserCombinators.Parsec
+
 
 data MainState = MainState
     { proxySession:: ProxySession
@@ -23,13 +25,17 @@ data MainState = MainState
     deriving (Eq, Show, Typeable)
 instance HEPLocalState MainState
 
-data MainFlag = FlagDestination String
+data MainFlag = FlagDestination Destination
     deriving Show
 
 options :: [OptDescr MainFlag]
 options = 
-    [ Option ['d']     ["dest"]  (ReqArg FlagDestination "addr:port") "destination"
+    [ Option ['d']     ["dest"]  (ReqArg getDestFlag "addr:port") "destination"
     ]
+    
+getDestFlag:: String-> MainFlag
+getDestFlag str = let Right parsed = parse parseAddrPort "arg" ("addr "++str)
+    in FlagDestination $! parsed
 
 getMainOptions:: [String]-> IO [MainFlag]
 getMainOptions argv =
@@ -101,8 +107,7 @@ generateProxySession = do
             syslogInfo $! "current user SID " ++ show usersid
             Right groups <- liftIO $! getCurrentGroupsSIDs usersid
             syslogInfo $! "current user's  groups' SID " ++ show groups
-            args <- liftIO $! getArgs >>= getMainOptions
-            liftIO $! print "args:" 
-            liftIO $! print args
+            FlagDestination dest <- liftIO $! getArgs >>= getMainOptions >>= return . head
+            syslogInfo $! "destination: " ++ show dest
             return ()
 
