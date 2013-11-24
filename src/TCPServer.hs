@@ -59,6 +59,7 @@ serverInit port svpid = do
         , workerBuffer = buff
         }
     liftIO $! sClose lsocket
+    syslogInfo "worker started"
     procRunning
     
     
