@@ -51,6 +51,7 @@ serverInit:: PortID-> Pid-> HEPProc
 serverInit port svpid = do
     syslogInfo "worker started"
     lsocket <- liftIO $! listenOn port
+    syslogInfo "listened on"
     (_socket, SockAddrInet _ addr) <- liftIO $! S.accept lsocket
     !host <- liftIO $! inet_ntoa addr
     syslogInfo $! "accepted connection from " ++ host
