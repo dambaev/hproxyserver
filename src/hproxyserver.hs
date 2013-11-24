@@ -35,9 +35,10 @@ options =
 getMainOptions:: [String]-> IO [MainFlag]
 getMainOptions argv =
     case getOpt Permute options argv of
+        ([],_,_) -> ioError (userError (usageInfo header options))
         (!o,n,[]  ) -> return o
         (_,_,errs) -> ioError (userError (concat errs ++ usageInfo header options))
-            where header = "Usage: hproxyserver [OPTION...]"
+    where header = "Usage: hproxyserver [OPTION...]"
 
 main = runHEPGlobal $! procWithSupervisor (H.proc superLogAndExit) $! 
     procWithBracket mainInit mainShutdown $! H.proc $! do
