@@ -195,28 +195,28 @@ mainShutdown = do
         Nothing-> return ()
         Just state -> do
             let readed = case mainRead state of
-                    some | some > 1024 * 1048576 -> 
+                    some | some >= 1024 * 1048576 -> 
                         show (fromIntegral some / (1024 * 1048576)) ++ " GB"
-                    some | some > 1048576 -> 
+                    some | some >= 1048576 -> 
                         show (fromIntegral some / 1048576) ++ " MB"
-                    some | some > 1024 -> 
-                        show (fromIntegral some / (1024 * 1048576)) ++ " GB"
+                    some | some >= 1024 -> 
+                        show (fromIntegral some / 1024) ++ " KB"
                     some -> show some ++ " B"
                 wrote = case mainWrote state of
-                    some | some > 1024 * 1048576 -> 
+                    some | some >= 1024 * 1048576 -> 
                         show (fromIntegral some / (1024 * 1048576)) ++ " GB"
-                    some | some > 1048576 -> 
+                    some | some >= 1048576 -> 
                         show (fromIntegral some / 1048576) ++ " MB"
-                    some | some > 1024 -> 
-                        show (fromIntegral some / (1024 * 1048576)) ++ " GB"
+                    some | some >= 1024 -> 
+                        show (fromIntegral some / 1024) ++ " GB"
                     some -> show some ++ " B"
                 total = case mainRead state + mainWrote state of
-                    some | some > 1024 * 1048576 -> 
+                    some | some >= 1024 * 1048576 -> 
                         show (fromIntegral some / (1024 * 1048576)) ++ " GB"
-                    some | some > 1048576 -> 
+                    some | some >= 1048576 -> 
                         show (fromIntegral  some / 1048576) ++ " MB"
-                    some | some > 1024 -> 
-                        show (fromIntegral  some / (1024 * 1048576)) ++ " GB"
+                    some | some >= 1024 -> 
+                        show (fromIntegral  some / 1024) ++ " GB"
                     some -> show some ++ " B"
             syslogInfo $! "session closed. readed: " ++ readed ++ 
                 ", wrote: " ++ wrote ++ ", total: " ++ total
