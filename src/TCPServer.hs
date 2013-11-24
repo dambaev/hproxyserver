@@ -85,9 +85,7 @@ serverWorker = do
                 !ptr = workerBuffer ls
             !read <- liftIO $! hGetBuf h ptr bufferSize
             case read of
-                0 -> do
-                    liftIO $! putStrLn "nothing readed"
-                    procRunning
+                0 -> procFinished
                 _ -> do
                     syslogInfo $! "readed " ++ show read ++ " bytes"
                     procRunning
