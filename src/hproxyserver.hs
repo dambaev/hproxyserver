@@ -278,6 +278,7 @@ notify config session permission = do
         !param = "\"user: " ++ username ++ ", dest: " ++ dest ++ 
             ", date: " ++ date ++ "access is " ++ permission ++ "\""
     spawn $! H.proc $! do
+        syslogInfo "notifying"
         (code, _, err) <- liftIO $! 
             readProcessWithExitCode cmd [ param ] "" 
         if code == ExitSuccess
