@@ -28,6 +28,7 @@ import Config
 import TCPServer
 import System.IO
 import System.Exit
+import System.Posix.Signals
 
 data MainState = MainState
     { proxySession:: ProxySession
@@ -54,6 +55,7 @@ data MainFlag = FlagDestination Destination
 data MainMessage = MainServerReceived Int
                  | MainClientReceived Int
                  | MainServerConnection !Handle
+                 | MainStop
     deriving Typeable
 instance Message MainMessage
 
@@ -87,6 +89,9 @@ main = withSocketsDo $! runHEPGlobal $! procWithSupervisor (H.proc superLogAndEx
             Nothing-> procFinished
             Just msg -> case fromMessage msg of
                 Nothing-> procRunning
+                Just MainStop -> do
+                    syslogInfo "TERM signal received"
+                    procFinished
                 Just (MainServerReceived !read) -> do
                     let !old = mainRead ls
                     setLocalState $! Just $! ls 
@@ -166,6 +171,8 @@ mainInit:: HEPProc
 mainInit = do
     !myuuid <- liftIO $! nextRandom
     startSyslog $! "hproxyserver-" ++ show myuuid
+    syslogInfo "installing signal handlers"
+    setupSignals
     syslogInfo "loading config"
     config <- liftIO $! loadConfig "/etc/hproxy/config"
     syslogInfo "generating ProxySession info"
@@ -296,4 +303,12 @@ notify config session permission = do
                 syslogError $! "notifyCMD failed with " ++ show code ++
                     "stderr: " ++ err
                 procFinished
+    return ()
+
+setupSignals:: HEP ()
+setupSignals = do
+    mbox <- selfMBox
+    liftIO $! installHandler sigTERM (Catch (sendMBox mbox $! toMessage $! MainStop )) Nothing
+    liftIO $! installHandler sigHUP (Ignore) Nothing
+    liftIO $! installHandler sigPIPE (Ignore) Nothing
     return ()
