@@ -114,6 +114,9 @@ main = withSocketsDo $! runHEPGlobal $! procWithSupervisor (H.proc superLogAndEx
                             hserver
                             (\x-> H.send me $! MainClientReceived x)
                     setConsumer server hclient
+                    setLocalState $! Just $! ls
+                        { mainClient = Just clientpid
+                        }
                     syslogInfo "client started"
                     procRunning
         
