@@ -163,10 +163,9 @@ serverWorker receiveAction = do
                     liftIO $! yield >> threadDelay 500000
                     procRunning
                 Just hout -> do
-                    isready <- liftIO $! hReady h
+                    isready <- liftIO $! hWaitForInput h 1000
                     if isready == False 
                         then do
-                            liftIO $! yield >> threadDelay 1000
                             procRunning
                         else do
                             !read <- liftIO $! hGetBufSome h ptr bufferSize
@@ -311,10 +310,9 @@ clientWorker consumer receiveAction = do
     Just ls <- localState
     let !h = clientHandle ls
         !ptr = clientBuffer ls
-    isready <- liftIO $! hReady h
+    isready <- liftIO $! hWaitForInput h 1000
     if isready == False 
         then do
-            liftIO $! yield >> threadDelay 1000
             procRunning
         else do
             !read <- liftIO $! hGetBufSome h ptr bufferSize
@@ -378,7 +376,9 @@ clientSupervisor = do
         handleClientSupervisorCommand (Just StopClient) = left =<< lift
             ( do
                 workers <- getSubscribed
-                forM workers $! \pid -> killProc pid
+                forM workers $! \pid -> do
+                    syslogInfo $! "killing client " ++ show pid
+                    killProc pid
                 procRunning
             )
     mreq <- runEitherT $! do

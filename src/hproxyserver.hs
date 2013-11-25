@@ -219,8 +219,8 @@ mainShutdown = do
                 ", wrote: " ++ wrote ++ ", total: " ++ total
             let Just server = mainServer state
                 Just client = mainClient state
-            stopTCPServer server
             stopTCPClient client
+            stopTCPServer server
             return ()
     stopSyslog
     procFinished
