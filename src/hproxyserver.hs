@@ -144,6 +144,12 @@ superLogAndExit = do
                 " failed with: " ++ show e
             lift $! procFinish outbox
             lift procRunning >>= left
+        handleServiceMessage (Just (ProcShutdownFailure cpid e _ outbox)) = do
+            liftIO $! putStrLn $! "ERROR: " ++ show e
+            lift $! syslogError $! "supervisor: shutdown of " ++ show cpid ++ 
+                " failed with: " ++ show e
+            lift $! procFinish outbox
+            lift procRunning >>= left
     mreq <- runEitherT $! do
         handleChildLinkMessage $! fromMessage msg
         handleServiceMessage $! fromMessage msg 
