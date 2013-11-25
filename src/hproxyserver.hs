@@ -222,6 +222,7 @@ mainShutdown = do
             stopTCPClient client
             stopTCPServer server
             return ()
+    liftIO $! threadDelay 10000000
     stopSyslog
     procFinished
 
