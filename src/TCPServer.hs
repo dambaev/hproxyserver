@@ -168,13 +168,13 @@ serverWorker receiveAction = do
                         then do
                             procRunning
                         else do -}
-                            !read <- liftIO $! hGetBufSome h ptr bufferSize
-                            case read of
-                                0 -> procFinished
-                                _ -> do
-                                    liftIO $! hPutBuf hout ptr read
-                                    receiveAction read
-                                    procRunning
+                    !read <- liftIO $! hGetBufSome h ptr bufferSize
+                    case read of
+                        0 -> procFinished
+                        _ -> do
+                            liftIO $! hPutBuf hout ptr read
+                            receiveAction read
+                            procRunning
 
 
 serverSupShutdown = procFinished
