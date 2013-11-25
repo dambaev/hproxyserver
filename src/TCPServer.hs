@@ -275,12 +275,24 @@ startTCPClient:: String
               -> HEP (Handle, Pid)
 startTCPClient addr port hserver receiveAction = do
     !inbox <- liftIO newMBox
-    sv <- spawn $! proc $! clientSupervisor
-    client <- spawn $! procWithSubscriber sv $! 
-        procWithBracket (clientInit addr port inbox) 
-        clientShutdown $! proc $! clientWorker hserver receiveAction 
+    sv <- spawn $! procWithBracket (clientSupInit addr port inbox hserver receiveAction) procFinished $!
+        proc $! clientSupervisor
     ClientStarted !h <- liftIO $! receiveMBox inbox
     return (h,sv)
+
+clientSupInit:: String
+             -> PortID
+             -> MBox ClientFeedback
+             -> Handle
+             -> (Int-> HEP ())
+             -> HEPProc
+clientSupInit addr port outbox hserver receiveAction = do
+    me <- self
+    pid <- spawn $! procWithSubscriber me $! 
+        procWithBracket (clientInit addr port outbox) clientShutdown $! 
+        proc $! clientWorker hserver receiveAction
+    addSubscribe pid
+    procRunning
 
 clientInit:: String-> PortID-> MBox ClientFeedback-> HEPProc
 clientInit addr port outbox = do
