@@ -38,6 +38,7 @@ instance HEPLocalState WorkerState
 data ClientState = ClientState
     { clientHandle :: Handle
     , clientBuffer :: Ptr CChar
+    , clientConsumer:: Handle
     }
     deriving Typeable
 instance HEPLocalState ClientState
@@ -140,12 +141,15 @@ serverShutdown = do
         Just some -> do
             liftIO $! hClose (workerHandle some)
             liftIO $! free (workerBuffer some)
+            _ <- case workerConsumer some of
+                Nothing-> return ()
+                Just h-> liftIO $! hClose h
             procFinished
 
 
 serverWorker:: (Int-> HEP ()) -> HEPProc
 serverWorker receiveAction = do
-    mmsg <- receiveMaybe
+    !mmsg <- receiveMaybe
     case mmsg of
         Just msg -> do
             case fromMessage msg of
@@ -289,13 +293,13 @@ clientSupInit:: String
 clientSupInit addr port outbox hserver receiveAction = do
     me <- self
     pid <- spawn $! procWithSubscriber me $! 
-        procWithBracket (clientInit addr port outbox) clientShutdown $! 
-        proc $! clientWorker hserver receiveAction
+        procWithBracket (clientInit addr port outbox hserver) 
+        clientShutdown $! proc $! clientWorker receiveAction
     addSubscribe pid
     procRunning
 
-clientInit:: String-> PortID-> MBox ClientFeedback-> HEPProc
-clientInit addr port outbox = do
+clientInit:: String-> PortID-> MBox ClientFeedback-> Handle-> HEPProc
+clientInit addr port outbox consumer = do
     h <- liftIO $! connectTo addr port 
     liftIO $! hSetBuffering h NoBuffering
     liftIO $! hSetBinaryMode h True
@@ -303,6 +307,7 @@ clientInit addr port outbox = do
     setLocalState $! Just $! ClientState
         { clientHandle = h
         , clientBuffer = buff
+        , clientConsumer = consumer
         }
     liftIO $! sendMBox outbox $! ClientStarted h
     procRunning
@@ -318,11 +323,12 @@ clientShutdown = do
                 free (clientBuffer some)
             procFinished
 
-clientWorker:: Handle-> (Int-> HEP ()) -> HEPProc
-clientWorker consumer receiveAction = do
+clientWorker:: (Int-> HEP ()) -> HEPProc
+clientWorker receiveAction = do
     Just ls <- localState
     let !h = clientHandle ls
         !ptr = clientBuffer ls
+        !consumer = clientConsumer ls
     {- isready <- liftIO $! hWaitForInput h 1000
     if isready == False 
         then do
