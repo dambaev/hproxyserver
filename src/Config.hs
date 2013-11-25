@@ -10,7 +10,7 @@ data Config = Config
 
 defaultConfig = Config
     { configRulesDir = "/etc/hproxy/rules.d/"
-    , configNotifyCMD = "echo"
+    , configNotifyCMD = "proxynotify"
     , configTCPPortsBase = 10000
     , configConnectionTimeout = 20
     }
