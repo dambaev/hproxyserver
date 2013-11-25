@@ -210,7 +210,8 @@ mainShutdown = do
                 ", wrote: " ++ wrote ++ ", total: " ++ total
             let Just server = mainServer state
                 Just client = mainClient state
-            -- stopTCPServer 
+            stopTCPServer server
+            stopTCPClient client
             return ()
     stopSyslog
     procFinished
@@ -279,7 +280,7 @@ notify config session permission = do
     spawn $! H.proc $! do
         (code, _, err) <- liftIO $! 
             readProcessWithExitCode cmd [ param ] "" 
-        if code /= ExitSuccess
+        if code == ExitSuccess
             then procFinished
             else do
                 syslogError $! "notifyCMD failed with " ++ show code ++

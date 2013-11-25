@@ -12,6 +12,7 @@ import Foreign.Marshal.Alloc
 import Foreign.Ptr
 import Foreign.C.Types
 import Network.Socket as S
+import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Trans.Either
 import GHC.IO.Handle
@@ -42,8 +43,7 @@ data ClientState = ClientState
 instance HEPLocalState ClientState
 
 
-data WorkerMessage = WorkerStop
-                   | WorkerSetConsumer !Handle
+data WorkerMessage = WorkerSetConsumer !Handle
     deriving Typeable
 instance Message WorkerMessage
 
@@ -63,10 +63,13 @@ instance Message SupervisorCommand
 
 data SupervisorAnswer = ServerStarted !PortID
 
-data ClientCommand = ClientStop
+data ClientSupervisorCommand = StopClient
     deriving Typeable
-instance Message ClientCommand
+instance Message ClientSupervisorCommand
 
+{--
+ - size for buffer for client/server connections
+ -}
 bufferSize = 64*1024
 
 startTCPServerBasePort:: PortID
@@ -85,7 +88,7 @@ setConsumer pid !h = do
     H.send pid $! SetWorkerConsumer h
     return ()
 
-    
+
 serverSupInit:: PortID
              -> MBox SupervisorAnswer
              -> (Int-> HEP ()) 
@@ -146,7 +149,6 @@ serverWorker receiveAction = do
     case mmsg of
         Just msg -> do
             case fromMessage msg of
-                Just WorkerStop -> procFinished
                 Just (WorkerSetConsumer !hout) -> do
                     Just ls <- localState
                     setLocalState $! Just $! ls { workerConsumer = Just hout}
@@ -161,17 +163,13 @@ serverWorker receiveAction = do
                     liftIO $! yield >> threadDelay 500000
                     procRunning
                 Just hout -> do
-                    isready <- liftIO $! hReady h
-                    if isready == False
-                        then procRunning
-                        else do
-                            !read <- liftIO $! hGetBufSome h ptr bufferSize
-                            case read of
-                                0 -> procFinished
-                                _ -> do
-                                    liftIO $! hPutBuf hout ptr read
-                                    receiveAction read
-                                    procRunning
+                    !read <- liftIO $! hGetBufSome h ptr bufferSize
+                    case read of
+                        0 -> procFinished
+                        _ -> do
+                            liftIO $! hPutBuf hout ptr read
+                            receiveAction read
+                            procRunning
 
 
 serverSupShutdown = procFinished
@@ -196,9 +194,11 @@ serverSupervisor receiveAction onOpen = do
             left =<< lift (do
                 case fromException e of
                     Just (IOError{ioe_type = ResourceVanished}) -> do
+                        syslogInfo $! "supervisor: server connection got ResourceVanished"
                         procFinish outbox
                         procRunning
                     Just (IOError{ioe_type = EOF}) -> do
+                        syslogInfo "supervisor: server connection got EOF"
                         procFinish outbox
                         procRunning
                     _ -> do
@@ -249,9 +249,8 @@ serverSupervisor receiveAction onOpen = do
                 )
         handleSupervisorCommand (Just StopServer) = do
             left =<< lift (do
-                Just ls <- localState
-                let !worker = supervisorWorker ls
-                H.send worker $! WorkerStop 
+                subscribed <- getSubscribed
+                forM subscribed $! \pid -> killProc pid
                 procRunning
                 )
 
@@ -303,34 +302,24 @@ clientShutdown = do
 
 clientWorker:: Handle-> (Int-> HEP ()) -> HEPProc
 clientWorker consumer receiveAction = do
-    mmsg <- receiveMaybe
-    case mmsg of
-        Just msg -> case fromMessage msg of
-            Nothing-> procRunning
-            Just ClientStop -> procFinished
-        Nothing-> do
-            Just ls <- localState
-            let !h = clientHandle ls
-                !ptr = clientBuffer ls
-            !isready  <- liftIO $! hReady h
-            if isready == False 
-                then procRunning
-                else do
-                    !read <- liftIO $! hGetBufSome h ptr bufferSize
-                    case read of
-                        0 -> procFinished
-                        _ -> do
-                            liftIO $! hPutBuf consumer ptr read
-                            receiveAction read
-                            procRunning
+    Just ls <- localState
+    let !h = clientHandle ls
+        !ptr = clientBuffer ls
+    !read <- liftIO $! hGetBufSome h ptr bufferSize
+    case read of
+        0 -> procFinished
+        _ -> do
+            liftIO $! hPutBuf consumer ptr read
+            receiveAction read
+            procRunning
             
-{- stopTCPServer:: Pid-> HEP ()
+stopTCPServer:: Pid-> HEP ()
 stopTCPServer pid = do
     H.send pid StopServer
     
 stopTCPClient:: Pid-> HEP ()
 stopTCPClient pid = do
-    -} 
+    H.send pid $! StopClient
 
 clientSupervisor:: HEPProc
 clientSupervisor = do
@@ -350,9 +339,11 @@ clientSupervisor = do
             left =<< lift (do
                 case fromException e of
                     Just (IOError{ioe_type = ResourceVanished}) -> do
+                        syslogInfo "supervisor: client connection got ResourceVanished"
                         procFinish outbox
                         procFinished
                     Just (IOError{ioe_type = EOF}) -> do
+                        syslogInfo "supervisor: client connection got EOF"
                         procFinish outbox
                         procRunning
                     _ -> do
@@ -369,9 +360,19 @@ clientSupervisor = do
                 procFinish outbox
                 procRunning
                 )
+        handleClientSupervisorCommand:: Maybe ClientSupervisorCommand
+                                     -> EitherT HEPProcState HEP HEPProcState
+        handleClientSupervisorCommand Nothing =right =<< lift procRunning
+        handleClientSupervisorCommand (Just StopClient) = left =<< lift
+            ( do
+                workers <- getSubscribed
+                forM workers $! \pid -> killProc pid
+                procRunning
+            )
     mreq <- runEitherT $! do
         handleChildLinkMessage $! fromMessage msg
         handleServiceMessage $! fromMessage msg 
+        handleClientSupervisorCommand $! fromMessage msg
         
     case mreq of
         Left some -> return some
