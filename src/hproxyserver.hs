@@ -6,6 +6,7 @@ module Main where
 import Control.Concurrent.HEP as H
 import Control.Concurrent.HEP.Syslog
 import Control.Concurrent
+import Control.Monad
 import System.Process
 import Data.Typeable
 import Data.UUID
@@ -26,6 +27,7 @@ import Network
 import Config
 import TCPServer
 import System.IO
+import System.Exit
 
 data MainState = MainState
     { proxySession:: ProxySession
@@ -172,7 +174,12 @@ mainInit = do
                 show line ++ "): " ++ show rule
             case rulePermission rule of
                 RuleDeny -> error "denied"
-                RuleAllow -> do
+                RuleDenyNotify -> do
+                    notify config session "denied"
+                    error "denied"
+                some | some == RuleAllow || some == RuleAllowNotify-> do
+                    when (some == RuleAllowNotify) $! do
+                        notify config session "allowed"
                     me <- self
                     (servpid, (PortNumber port)) <- 
                         startTCPServerBasePort 
@@ -240,6 +247,7 @@ generateProxySession = do
             , sessionWeekDay = weekday
             , sessionTime = time
             , sessionDestination = dest
+            , sessionUserName = username
             }
     setLocalState $! Just $! defaultMainState
         { proxySession = ret
@@ -247,3 +255,34 @@ generateProxySession = do
     return ret
 
     
+notify:: Config-> ProxySession-> String-> HEP ()
+notify config session permission = do
+    let !cmd = configNotifyCMD config
+        !username = sessionUserName session
+        DateYYYYMMDD !y !m !d = sessionDate session
+        TimeHHMM !h !min = sessionTime session
+        !minute | min < 10 = "0" ++ show min
+                | otherwise = show min
+        !hour | h < 10 = "0" ++ show h
+              | otherwise = show h
+        !month | m < 10 = "0" ++ show m
+               | otherwise = show m
+        !day | d < 10 = "0" ++ show d
+             | otherwise = show d
+        !date = (show y) ++ "." ++ month ++ "." ++ day ++ " " ++ 
+            hour ++ ":" ++ minute
+        !dest = let DestinationAddrPort (IPAddress addr) port = 
+                        sessionDestination session
+                in addr ++ ":" ++ show port
+        !param = "\"user: " ++ username ++ ", dest: " ++ dest ++ 
+            ", date: " ++ date ++ "access is " ++ permission ++ "\""
+    spawn $! H.proc $! do
+        (code, _, err) <- liftIO $! 
+            readProcessWithExitCode cmd [ param ] "" 
+        if code /= ExitSuccess
+            then procFinished
+            else do
+                syslogError $! "notifyCMD failed with " ++ show code ++
+                    "stderr: " ++ err
+                procFinished
+    return ()

@@ -2,6 +2,7 @@ module Config where
 
 data Config = Config
     { configRulesDir :: String
+    , configNotifyCMD:: String
     , configTCPPortsBase:: Int
     , configConnectionTimeout:: Int
     }
@@ -9,6 +10,7 @@ data Config = Config
 
 defaultConfig = Config
     { configRulesDir = "/etc/hproxy/rules.d/"
+    , configNotifyCMD = "echo"
     , configTCPPortsBase = 10000
     , configConnectionTimeout = 20
     }
