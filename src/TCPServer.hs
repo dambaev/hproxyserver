@@ -163,7 +163,7 @@ serverWorker receiveAction = do
                     liftIO $! yield >> threadDelay 500000
                     procRunning
                 Just hout -> do
-                    isready <- hReady h
+                    isready <- liftIO $! hReady h
                     if isready == False 
                         then do
                             liftIO $! yield >> threadDelay 1000
@@ -311,7 +311,7 @@ clientWorker consumer receiveAction = do
     Just ls <- localState
     let !h = clientHandle ls
         !ptr = clientBuffer ls
-    isready <- hReady h
+    isready <- liftIO $! hReady h
     if isready == False 
         then do
             liftIO $! yield >> threadDelay 1000
