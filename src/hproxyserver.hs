@@ -276,7 +276,7 @@ notify config session permission = do
                         sessionDestination session
                 in addr ++ ":" ++ show port
         !param = "\"user: " ++ username ++ ", dest: " ++ dest ++ 
-            ", date: " ++ date ++ "access is " ++ permission ++ "\""
+            ", date: " ++ date ++ " access is " ++ permission ++ "\""
     spawn $! H.proc $! do
         syslogInfo "notifying"
         (code, _, err) <- liftIO $! 
