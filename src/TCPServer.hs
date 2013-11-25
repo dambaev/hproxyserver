@@ -163,11 +163,11 @@ serverWorker receiveAction = do
                     liftIO $! yield >> threadDelay 500000
                     procRunning
                 Just hout -> do
-                    isready <- liftIO $! hWaitForInput h 1000
+                    {-isready <- liftIO $! hWaitForInput h 1000
                     if isready == False 
                         then do
                             procRunning
-                        else do
+                        else do -}
                             !read <- liftIO $! hGetBufSome h ptr bufferSize
                             case read of
                                 0 -> procFinished
@@ -323,18 +323,18 @@ clientWorker consumer receiveAction = do
     Just ls <- localState
     let !h = clientHandle ls
         !ptr = clientBuffer ls
-    isready <- liftIO $! hWaitForInput h 1000
+    {- isready <- liftIO $! hWaitForInput h 1000
     if isready == False 
         then do
             procRunning
-        else do
-            !read <- liftIO $! hGetBufSome h ptr bufferSize
-            case read of
-                0 -> procFinished
-                _ -> do
-                    liftIO $! hPutBuf consumer ptr read
-                    receiveAction read
-                    procRunning
+        else do -}
+    !read <- liftIO $! hGetBufSome h ptr bufferSize
+    case read of
+        0 -> procFinished
+        _ -> do
+            liftIO $! hPutBuf consumer ptr read
+            receiveAction read
+            procRunning
             
 stopTCPServer:: Pid-> HEP ()
 stopTCPServer pid = do
