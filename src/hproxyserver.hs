@@ -203,6 +203,7 @@ mainInit = do
                             ( \x-> H.send me $! MainServerReceived x)
                             (\x-> H.send me $! MainServerConnection x)
                     liftIO $! putStrLn $! "OK " ++ show port
+                    liftIO $! hFlush stdout
                     syslogInfo $! "TCP server started on port " ++ 
                         show port
                     Just ls <- localState
