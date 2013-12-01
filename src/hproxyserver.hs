@@ -225,8 +225,10 @@ mainShutdown = do
             syslogInfo $! "session closed. readed: " ++ readed ++ 
                 ", wrote: " ++ wrote ++ ", total: " ++ total
             let Just server = mainServer state
-                Just client = mainClient state
-            stopTCPClient client
+                mclient = mainClient state
+            _<- case mclient of 
+                Nothing-> return ()
+                Just client -> stopTCPClient client
             stopTCPServer server
             return ()
     stopSyslog
