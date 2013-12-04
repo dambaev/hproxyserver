@@ -79,51 +79,53 @@ getMainOptions argv =
         (_,_,errs) -> ioError (userError (concat errs ++ usageInfo header options))
     where header = "Usage: hproxyserver [OPTION...]"
 
-main = withSocketsDo $! runHEPGlobal $! withSyslog "hproxyserver" $! procWithSupervisor (H.proc superLogAndExit) $! 
-    procWithBracket mainInit mainShutdown $! H.proc $! do
-        Just ls <- localState
-        let Just config = mainConfig ls
-            !timeout = configConnectionTimeout config
-        mmsg <- receiveAfter (timeout * 1000)
-        case mmsg of
-            Nothing-> procFinished
-            Just msg -> case fromMessage msg of
-                Nothing-> procRunning
-                Just MainStop -> do
-                    syslogInfo "TERM signal received"
-                    procFinished
-                Just (MainServerReceived !read) -> do
-                    let !old = mainRead ls
-                    setLocalState $! Just $! ls 
-                        { mainRead = old + (fromIntegral read)
-                        }
-                    procRunning
-                Just (MainClientReceived !read) -> do
-                    let !old = mainRead ls
-                    setLocalState $! Just $! ls 
-                        { mainWrote = old + (fromIntegral read)
-                        }
-                    procRunning
-                Just (MainServerConnection hserver) -> do
-                    Just ls <- localState
-                    me <- self
-                    let session = proxySession ls
-                        DestinationAddrPort (IPAddress addr) port =     
-                            sessionDestination session
-                        Just server = mainServer ls
-                    syslogInfo $! "starting client to " ++ 
-                        show addr ++ ":" ++ show port
-                    (!hclient, clientpid) <- 
-                        startTCPClient addr 
-                            (PortNumber $! fromIntegral port) 
-                            hserver
-                            (\x-> H.send me $! MainClientReceived x)
-                    setConsumer server hclient
-                    setLocalState $! Just $! ls
-                        { mainClient = Just clientpid
-                        }
-                    syslogInfo "client started"
-                    procRunning
+main = do
+    !myuuid <- nextRandom >>= return . show
+    withSocketsDo $! runHEPGlobal $! withSyslog ("hproxyserver-"++myuuid) $! procWithSupervisor (H.proc superLogAndExit) $! 
+        procWithBracket mainInit mainShutdown $! H.proc $! do
+            Just ls <- localState
+            let Just config = mainConfig ls
+                !timeout = configConnectionTimeout config
+            mmsg <- receiveAfter (timeout * 1000)
+            case mmsg of
+                Nothing-> procFinished
+                Just msg -> case fromMessage msg of
+                    Nothing-> procRunning
+                    Just MainStop -> do
+                        syslogInfo "TERM signal received"
+                        procFinished
+                    Just (MainServerReceived !read) -> do
+                        let !old = mainRead ls
+                        setLocalState $! Just $! ls 
+                            { mainRead = old + (fromIntegral read)
+                            }
+                        procRunning
+                    Just (MainClientReceived !read) -> do
+                        let !old = mainRead ls
+                        setLocalState $! Just $! ls 
+                            { mainWrote = old + (fromIntegral read)
+                            }
+                        procRunning
+                    Just (MainServerConnection hserver) -> do
+                        Just ls <- localState
+                        me <- self
+                        let session = proxySession ls
+                            DestinationAddrPort (IPAddress addr) port =     
+                                sessionDestination session
+                            Just server = mainServer ls
+                        syslogInfo $! "starting client to " ++ 
+                            show addr ++ ":" ++ show port
+                        (!hclient, clientpid) <- 
+                            startTCPClient addr 
+                                (PortNumber $! fromIntegral port) 
+                                hserver
+                                (\x-> H.send me $! MainClientReceived x)
+                        setConsumer server hclient
+                        setLocalState $! Just $! ls
+                            { mainClient = Just clientpid
+                            }
+                        syslogInfo "client started"
+                        procRunning
         
 
 superLogAndExit:: HEPProc
@@ -142,19 +144,19 @@ superLogAndExit = do
         handleServiceMessage Nothing = lift procRunning >>= right
         handleServiceMessage (Just (ProcWorkerFailure cpid e _ outbox)) = do
             liftIO $! putStrLn $! "ERROR: " ++ show e
-            lift $! syslogError $! "supervisor: worker " ++ show cpid ++ 
+            lift $! syslogInfo $! "supervisor: worker " ++ show cpid ++ 
                 " failed with: " ++ show e ++ ". It will be recovered"
             lift $! procFinish outbox
             lift procRunning >>= left
         handleServiceMessage (Just (ProcInitFailure cpid e _ outbox)) = do
             liftIO $! putStrLn $! "ERROR: " ++ show e
-            lift $! syslogError $! "supervisor: init of " ++ show cpid ++ 
+            lift $! syslogInfo $! "supervisor: init of " ++ show cpid ++ 
                 " failed with: " ++ show e
             lift $! procFinish outbox
             lift procRunning >>= left
         handleServiceMessage (Just (ProcShutdownFailure cpid e _ outbox)) = do
             liftIO $! putStrLn $! "ERROR: " ++ show e
-            lift $! syslogError $! "supervisor: shutdown of " ++ show cpid ++ 
+            lift $! syslogInfo $! "supervisor: shutdown of " ++ show cpid ++ 
                 " failed with: " ++ show e
             lift $! procFinish outbox
             lift procRunning >>= left
@@ -169,7 +171,6 @@ superLogAndExit = do
 
 mainInit:: HEPProc
 mainInit = do
-    !myuuid <- liftIO $! nextRandom
     syslogInfo "installing signal handlers"
     setupSignals
     syslogInfo "loading config"
