@@ -79,7 +79,7 @@ getMainOptions argv =
         (_,_,errs) -> ioError (userError (concat errs ++ usageInfo header options))
     where header = "Usage: hproxyserver [OPTION...]"
 
-main = withSocketsDo $! runHEPGlobal $! procWithSupervisor (H.proc superLogAndExit) $! 
+main = withSocketsDo $! runHEPGlobal $! withSyslog "hproxyserver" $! procWithSupervisor (H.proc superLogAndExit) $! 
     procWithBracket mainInit mainShutdown $! H.proc $! do
         Just ls <- localState
         let Just config = mainConfig ls
@@ -170,7 +170,6 @@ superLogAndExit = do
 mainInit:: HEPProc
 mainInit = do
     !myuuid <- liftIO $! nextRandom
-    startSyslog $! "hproxyserver-" ++ show myuuid
     syslogInfo "installing signal handlers"
     setupSignals
     syslogInfo "loading config"
@@ -232,7 +231,6 @@ mainShutdown = do
                 Just client -> stopTCPClient client
             stopTCPServer server
             return ()
-    stopSyslog
     procFinished
 
     
