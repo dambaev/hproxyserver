@@ -141,8 +141,9 @@ serverShutdown = do
         Just some -> do
             liftIO $! do
                 closed <- hIsClosed (workerHandle some)
-                --when (closed == False) $! 
-                hClose (workerHandle some)
+                when (closed == False) $! do
+                    hFlush (workerHandle some)
+                    hClose (workerHandle some)
                 free (workerBuffer some)
             _ <- case workerConsumer some of
                 Nothing-> return ()
@@ -333,13 +334,13 @@ clientShutdown hserver = do
         Just some -> do
             liftIO $! do
                 cclosed <- hIsClosed (clientHandle some)
-                --when (cclosed == False) $! do
-                hFlush (clientHandle some)
-                hClose (clientHandle some)
+                when (cclosed == False) $! do
+                    hFlush (clientHandle some)
+                    hClose (clientHandle some)
                 sclosed <- hIsClosed hserver
-                --when (sclosed == False) $! do
-                hFlush hserver
-                hClose hserver
+                when (sclosed == False) $! do
+                    hFlush hserver
+                    hClose hserver
                 free (clientBuffer some)
             procFinished
 
