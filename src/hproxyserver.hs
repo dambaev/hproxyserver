@@ -101,7 +101,7 @@ main = do
                             }
                         procRunning
                     Just (MainClientReceived !read) -> do
-                        let !old = mainRead ls
+                        let !old = mainWrote ls
                         setLocalState $! Just $! ls 
                             { mainWrote = old + (fromIntegral read)
                             }
@@ -137,7 +137,9 @@ superLogAndExit = do
             lift $! syslogInfo $! "supervisor: main thread exited "
             subscribed <- lift getSubscribed
             case subscribed of
-                [] -> lift procFinished >>= left
+                [] -> left =<< lift ( do
+                    
+                    procFinished)
                 _ -> lift procRunning >>= left
         
         handleServiceMessage:: Maybe SupervisorMessage -> EitherT HEPProcState HEP HEPProcState
