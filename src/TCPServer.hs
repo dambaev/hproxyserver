@@ -18,6 +18,7 @@ import Control.Monad.Trans.Either
 import GHC.IO.Handle
 import System.IO
 import Data.Typeable
+import System.Timeout
 
 data SupervisorState = SupervisorState
     { serverPort:: PortID
@@ -181,10 +182,11 @@ serverWorker receiveAction = do
                         then do
                             procRunning
                         else do -}
-                    !read <- liftIO $! hGetBufSome h ptr bufferSize
-                    case read of
-                        0 -> procFinished
-                        _ -> do
+                    !mread <- liftIO $! timeout 1000000 $! hGetBufSome h ptr bufferSize
+                    case mread of
+                        Nothing -> procRunning
+                        Just 0 -> procFinished
+                        Just !read -> do
                             liftIO $! hPutBuf hout ptr read
                             receiveAction read
                             procRunning
@@ -360,10 +362,11 @@ clientWorker receiveAction = do
         then do
             procRunning
         else do -}
-    !read <- liftIO $! hGetBufSome h ptr bufferSize
-    case read of
-        0 -> procFinished
-        _ -> do
+    !mread <- liftIO $! timeout 1000000 $! hGetBufSome h ptr bufferSize
+    case mread of
+        Nothing -> procRunning
+        Just 0 -> procFinished
+        Just !read -> do
             liftIO $! hPutBuf consumer ptr read
             receiveAction read
             procRunning
