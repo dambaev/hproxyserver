@@ -143,7 +143,9 @@ serverShutdown = do
             liftIO $! free (workerBuffer some)
             _ <- case workerConsumer some of
                 Nothing-> return ()
-                Just h-> liftIO $! hClose h
+                Just h-> liftIO $! do
+                    hFlush h
+                    hClose h
             procFinished
 
 
@@ -294,7 +296,7 @@ clientSupInit addr port outbox hserver receiveAction = do
     me <- self
     pid <- spawn $! procWithSubscriber me $! 
         procWithBracket (clientInit addr port outbox hserver) 
-        clientShutdown $! proc $! clientWorker receiveAction
+        (clientShutdown hserver) $! proc $! clientWorker receiveAction
     addSubscribe pid
     procRunning
 
@@ -312,14 +314,17 @@ clientInit addr port outbox consumer = do
     liftIO $! sendMBox outbox $! ClientStarted h
     procRunning
 
-clientShutdown:: HEPProc
-clientShutdown = do
+clientShutdown:: Handle-> HEPProc
+clientShutdown hserver = do
     ls <- localState
     case ls of
         Nothing-> procFinished
         Just some -> do
             liftIO $! do
+                hFlush (clientHandle some)
                 hClose (clientHandle some)
+                hFlush hserver
+                hClose hserver
                 free (clientBuffer some)
             procFinished
 
