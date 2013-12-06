@@ -76,11 +76,12 @@ bufferSize = 64*1024
 startTCPServerBasePort:: PortID
                       -> (Int-> HEP ()) 
                       -> (Handle-> HEP ()) 
+                      -> HEP ()
                       -> HEP (Pid, PortID)
-startTCPServerBasePort base receiveAction onOpen = do
+startTCPServerBasePort base receiveAction onOpen onClose = do
     !input <- liftIO newMBox
     sv <- spawn $! procWithBracket (serverSupInit base input receiveAction onOpen) 
-        serverSupShutdown $! proc $! serverSupervisor receiveAction onOpen 
+        (serverSupShutdown onClose) $! proc $! serverSupervisor receiveAction onOpen 
     ServerStarted !port <- liftIO $! receiveMBox input
     return (sv, port)
 
@@ -189,7 +190,9 @@ serverWorker receiveAction = do
                             procRunning
 
 
-serverSupShutdown = procFinished
+serverSupShutdown onClose = do
+    onClose
+    procFinished
 
 serverSupervisor:: (Int-> HEP()) 
                 -> (Handle-> HEP())
@@ -290,10 +293,12 @@ startTCPClient:: String
               -> PortID
               -> Handle
               -> (Int-> HEP ())
+              -> HEP ()
               -> HEP (Handle, Pid)
-startTCPClient addr port hserver receiveAction = do
+startTCPClient addr port hserver receiveAction onClose = do
     !inbox <- liftIO newMBox
-    sv <- spawn $! procWithBracket (clientSupInit addr port inbox hserver receiveAction) procFinished $!
+    sv <- spawn $! procWithBracket (clientSupInit addr port inbox hserver receiveAction) 
+        (onClose >> procFinished) $!
         proc $! clientSupervisor
     ClientStarted !h <- liftIO $! receiveMBox inbox
     return (h,sv)

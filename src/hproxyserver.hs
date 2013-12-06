@@ -120,6 +120,7 @@ main = do
                                 (PortNumber $! fromIntegral port) 
                                 hserver
                                 (\x-> H.send me $! MainClientReceived x)
+                                (H.send me MainStop)
                         setConsumer server hclient
                         setLocalState $! Just $! ls
                             { mainClient = Just clientpid
@@ -202,8 +203,9 @@ mainInit = do
                     (servpid, (PortNumber port)) <- 
                         startTCPServerBasePort 
                             (PortNumber $! fromIntegral $! configTCPPortsBase config)
-                            ( \x-> H.send me $! MainServerReceived x)
+                            (\x-> H.send me $! MainServerReceived x)
                             (\x-> H.send me $! MainServerConnection x)
+                            (H.send me MainStop)
                     liftIO $! putStrLn $! "OK " ++ show port
                     liftIO $! hFlush stdout
                     syslogInfo $! "TCP server started on port " ++ 
