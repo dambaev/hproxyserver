@@ -24,14 +24,16 @@ data SupervisorState = SupervisorState
     { serverPort:: PortID
     , supervisorStarter:: MBox SupervisorAnswer
     , supervisorWorker:: Pid
+    , supervisorConnectionsCount:: Int
     }
     deriving Typeable
 instance HEPLocalState SupervisorState
 
 data WorkerState = WorkerState
-    { workerHandle :: Handle
+    { workerHandle :: Maybe Handle
     , workerBuffer :: Ptr CChar
     , workerConsumer:: Maybe Handle
+    , workerSocket :: Socket
     }
     deriving Typeable
 instance HEPLocalState WorkerState
@@ -75,13 +77,14 @@ instance Message ClientSupervisorCommand
 bufferSize = 64*1024
 
 startTCPServerBasePort:: PortID
+                      -> Int
                       -> (Int-> HEP ()) 
-                      -> (Handle-> HEP ()) 
+                      -> (Pid-> Handle-> HEP ()) 
                       -> HEP ()
                       -> HEP (Pid, PortID)
-startTCPServerBasePort base receiveAction onOpen onClose = do
+startTCPServerBasePort base connectionsCount receiveAction onOpen onClose = do
     !input <- liftIO newMBox
-    sv <- spawn $! procWithBracket (serverSupInit base input receiveAction onOpen) 
+    sv <- spawn $! procWithBracket (serverSupInit base connectionsCount input receiveAction onOpen) 
         (serverSupShutdown onClose) $! proc $! serverSupervisor receiveAction onOpen 
     ServerStarted !port <- liftIO $! receiveMBox input
     return (sv, port)
@@ -93,29 +96,30 @@ setConsumer pid !h = do
 
 
 serverSupInit:: PortID
+             -> Int
              -> MBox SupervisorAnswer
              -> (Int-> HEP ()) 
              -> (Handle-> HEP ()) 
              -> HEPProc
-serverSupInit port starter receiveAction onOpen = do
+serverSupInit port connectionsCount starter receiveAction onOpen = do
     me <- self
     pid <- spawn $! procWithSubscriber me $! 
-        procWithBracket (serverInit port me onOpen) serverShutdown $! 
-        proc $! serverWorker receiveAction 
+        procWithBracket (serverInit port me) serverShutdown $! 
+        proc $! serverWorker receiveAction (onOpen me)
     addSubscribe pid
     setLocalState $! Just $! SupervisorState
         { serverPort = port
         , supervisorStarter = starter
         , supervisorWorker = pid
+        , supervisorConnectionsCount = connectionsCount
         }
     procRunning
     
     
 serverInit:: PortID
           -> Pid
-          -> (Handle-> HEP ())
           -> HEPProc
-serverInit port svpid onOpen = do
+serverInit port svpid = do
     syslogInfo "worker started"
     lsocket <- liftIO $! listenOn port
     H.send svpid $! WorkerStarted port
@@ -167,29 +171,31 @@ serverWorker receiveAction = do
                     Just ls <- localState
                     setLocalState $! Just $! ls { workerConsumer = Just hout}
                     procRunning
+        Nothing-> serverIterate receiveAction onOpen
+
+serverIterate receiveAction onOpen = do
+    Just ls <- localState
+    let !h = workerHandle ls
+        !ptr = workerBuffer ls
+        !consumer = workerConsumer ls
+    case consumer of
         Nothing-> do
-            Just ls <- localState
-            let !h = workerHandle ls
-                !ptr = workerBuffer ls
-                !consumer = workerConsumer ls
-            case consumer of
-                Nothing-> do
-                    liftIO $! yield >> threadDelay 500000
+            liftIO $! yield >> threadDelay 500000
+            procRunning
+        Just hout -> do
+            {-isready <- liftIO $! hWaitForInput h 1000
+            if isready == False 
+                then do
                     procRunning
-                Just hout -> do
-                    {-isready <- liftIO $! hWaitForInput h 1000
-                    if isready == False 
-                        then do
-                            procRunning
-                        else do -}
-                    !mread <- liftIO $! timeout 1000000 $! hGetBufSome h ptr bufferSize
-                    case mread of
-                        Nothing -> procRunning
-                        Just 0 -> procFinished
-                        Just !read -> do
-                            liftIO $! hPutBuf hout ptr read
-                            receiveAction read
-                            procRunning
+                else do -}
+            !mread <- liftIO $! timeout 1000000 $! hGetBufSome h ptr bufferSize
+            case mread of
+                Nothing -> procRunning
+                Just 0 -> procFinished
+                Just !read -> do
+                    liftIO $! hPutBuf hout ptr read
+                    receiveAction read
+                    procRunning
 
 
 serverSupShutdown onClose = do

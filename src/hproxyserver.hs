@@ -37,6 +37,7 @@ data MainState = MainState
     , mainConfig:: Maybe Config
     , mainRead:: Integer
     , mainWrote:: Integer
+    , mainConnectionsCount:: Int
     }
     deriving (Typeable)
 instance HEPLocalState MainState
@@ -47,6 +48,7 @@ defaultMainState = MainState
     , mainConfig = Nothing
     , mainRead = 0
     , mainWrote = 0
+    , mainConnectionsCount = 1
     }
 
 data MainFlag = FlagDestination Destination
