@@ -66,7 +66,10 @@ options =
     [ Option ['d']     ["dest"]  (ReqArg getDestFlag "addr:port") "destination"
     , Option ['c']     ["conn-count"]  (ReqArg getConnectionsCountFlag "count") "connections count from client"
     ]
-    
+
+getConnectionsCountFlag:: String-> MainFlag
+getConnectionsCountFlag = FlagConnectionsCount . read
+
 getDestFlag:: String-> MainFlag
 getDestFlag str = let parsed = parse parseAddrPort "arg" ("addr "++str)
     in case parsed of
