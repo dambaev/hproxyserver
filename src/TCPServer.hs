@@ -18,6 +18,7 @@ import Control.Monad.Trans.Either
 import GHC.IO.Handle
 import System.IO
 import Data.Typeable
+import System.IO.Error
 import System.Timeout
 
 data SupervisorState = SupervisorState
@@ -99,7 +100,7 @@ serverSupInit:: PortID
              -> Int
              -> MBox SupervisorAnswer
              -> (Int-> HEP ()) 
-             -> (Handle-> HEP ()) 
+             -> (Pid-> Handle-> HEP ()) 
              -> HEPProc
 serverSupInit port connectionsCount starter receiveAction onOpen = do
     me <- self
@@ -123,18 +124,14 @@ serverInit port svpid = do
     syslogInfo "worker started"
     lsocket <- liftIO $! listenOn port
     H.send svpid $! WorkerStarted port
-    (h, host, _) <- liftIO $! N.accept lsocket
-    liftIO $! hSetBuffering h NoBuffering
-    liftIO $! hSetBinaryMode h True
-    syslogInfo $! "accepted connection from " ++ show host
     buff <- liftIO $! mallocBytes bufferSize
     setLocalState $! Just $! WorkerState
-        { workerHandle = h
+        { workerHandle = Nothing
         , workerBuffer = buff
         , workerConsumer = Nothing
+        , workerSocket = lsocket
         }
-    onOpen h 
-    liftIO $! sClose lsocket
+    
     procRunning
     
     
@@ -146,11 +143,15 @@ serverShutdown = do
         Nothing -> procFinished
         Just some -> do
             liftIO $! do
-                closed <- hIsClosed (workerHandle some)
-                when (closed == False) $! do
-                    hFlush (workerHandle some)
-                    hClose (workerHandle some)
+                _ <- case workerHandle some of
+                    Nothing-> return ()
+                    Just wh -> do
+                        closed <- hIsClosed wh
+                        when (closed == False) $! do
+                            hFlush wh
+                            hClose wh
                 free (workerBuffer some)
+                sClose (workerSocket some)
             _ <- case workerConsumer some of
                 Nothing-> return ()
                 Just h-> liftIO $! do
@@ -161,8 +162,8 @@ serverShutdown = do
             procFinished
 
 
-serverWorker:: (Int-> HEP ()) -> HEPProc
-serverWorker receiveAction = do
+serverWorker:: (Int-> HEP ()) -> (Handle-> HEP ())->HEPProc
+serverWorker receiveAction onOpen = do
     !mmsg <- receiveMaybe
     case mmsg of
         Just msg -> do
@@ -178,24 +179,35 @@ serverIterate receiveAction onOpen = do
     let !h = workerHandle ls
         !ptr = workerBuffer ls
         !consumer = workerConsumer ls
-    case consumer of
+    case workerHandle ls of
         Nothing-> do
-            liftIO $! yield >> threadDelay 500000
+            (h, host, _) <- liftIO $! N.accept (workerSocket ls)
+            liftIO $! hSetBuffering h NoBuffering
+            liftIO $! hSetBinaryMode h True
+            syslogInfo $! "accepted connection from " ++ show host
+            setLocalState $! Just $! ls 
+                { workerHandle = Just h
+                }
+            onOpen h 
             procRunning
-        Just hout -> do
-            {-isready <- liftIO $! hWaitForInput h 1000
-            if isready == False 
-                then do
-                    procRunning
-                else do -}
-            !mread <- liftIO $! timeout 1000000 $! hGetBufSome h ptr bufferSize
-            case mread of
-                Nothing -> procRunning
-                Just 0 -> procFinished
-                Just !read -> do
-                    liftIO $! hPutBuf hout ptr read
-                    receiveAction read
-                    procRunning
+        Just h -> case consumer of
+            Nothing-> do
+                liftIO $! yield >> threadDelay 500000
+                procRunning
+            Just hout -> do
+                {-isready <- liftIO $! hWaitForInput h 1000
+                if isready == False 
+                    then do
+                        procRunning
+                    else do -}
+                !mread <- liftIO $! timeout 1000000 $! hGetBufSome h ptr bufferSize
+                case mread of
+                    Nothing -> procRunning
+                    Just 0 -> liftIO $! ioError $! mkIOError eofErrorType "no data received" Nothing Nothing
+                    Just !read -> do
+                        liftIO $! hPutBuf hout ptr read
+                        receiveAction read
+                        procRunning
 
 
 serverSupShutdown onClose = do
@@ -203,7 +215,7 @@ serverSupShutdown onClose = do
     procFinished
 
 serverSupervisor:: (Int-> HEP()) 
-                -> (Handle-> HEP())
+                -> (Pid-> Handle-> HEP())
                 -> HEPProc
 serverSupervisor receiveAction onOpen = do
     msg <- receive
@@ -218,16 +230,51 @@ serverSupervisor receiveAction onOpen = do
         
         handleServiceMessage:: Maybe SupervisorMessage -> EitherT HEPProcState HEP HEPProcState
         handleServiceMessage Nothing = lift procRunning >>= right
-        handleServiceMessage (Just (ProcWorkerFailure cpid e _ outbox)) = do
+        handleServiceMessage (Just (ProcWorkerFailure cpid e wstate outbox)) = do
             left =<< lift (do
+                Just ls <- localState
                 case fromException e of
                     Just (IOError{ioe_type = ResourceVanished}) -> do
                         syslogInfo $! "supervisor: server connection got ResourceVanished"
-                        procFinish outbox
+                        _ <- if supervisorConnectionsCount ls <= 1 
+                            then procFinish outbox
+                            else do
+                                syslogInfo  $! "supervisor: awaiting next connection"
+                                case procStateGetLocalState wstate of
+                                    Nothing-> procFinish outbox
+                                    Just oldstate_ -> do
+                                        let newstate = case fromLocalState oldstate_ of
+                                                Nothing -> Nothing
+                                                Just oldstate -> Just $! toLocalState $! oldstate 
+                                                    { workerHandle = Nothing
+                                                    }
+                                            newwstate = procStateSetLocalState wstate newstate
+                                        procContinue outbox $! newwstate
+                                        setLocalState $! Just $! ls 
+                                            { supervisorConnectionsCount = 
+                                                supervisorConnectionsCount ls- 1
+                                            }
                         procRunning
                     Just (IOError{ioe_type = EOF}) -> do
                         syslogInfo "supervisor: server connection got EOF"
-                        procFinish outbox
+                        _ <- if supervisorConnectionsCount ls <= 1 
+                            then procFinish outbox
+                            else do
+                                syslogInfo  $! "supervisor: awaiting next connection"
+                                case procStateGetLocalState wstate of
+                                    Nothing-> procFinish outbox
+                                    Just oldstate_ -> do
+                                        let newstate = case fromLocalState oldstate_ of
+                                                Nothing -> Nothing
+                                                Just oldstate -> Just $! toLocalState $! oldstate 
+                                                    { workerHandle = Nothing
+                                                    }
+                                            newwstate = procStateSetLocalState wstate newstate
+                                        procContinue outbox $! newwstate
+                                        setLocalState $! Just $! ls 
+                                            { supervisorConnectionsCount = 
+                                                supervisorConnectionsCount ls- 1
+                                            }
                         procRunning
                     _ -> do
                         syslogError $! "supervisor: server " ++ show cpid ++ 
@@ -244,9 +291,9 @@ serverSupervisor receiveAction onOpen = do
                 me <- self
                 syslogInfo $! "port " ++ show port ++ " is busy"
                 pid <- spawn $! procWithSubscriber me $! 
-                    procWithBracket (serverInit newport me onOpen) 
+                    procWithBracket (serverInit newport me ) 
                         serverShutdown $! 
-                    proc $! serverWorker receiveAction
+                    proc $! serverWorker receiveAction (onOpen me)
                 addSubscribe pid
                 setLocalState $! Just $! ls
                     { serverPort = newport

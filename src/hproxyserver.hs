@@ -210,8 +210,9 @@ mainInit = do
                     (servpid, (PortNumber port)) <- 
                         startTCPServerBasePort 
                             (PortNumber $! fromIntegral $! configTCPPortsBase config)
+                            2
                             (\x-> H.send me $! MainServerReceived x)
-                            (\x-> H.send me $! MainServerConnection x)
+                            (\pid x-> H.send me $! MainServerConnection x)
                             (H.send me MainStop)
                     liftIO $! putStrLn $! "OK " ++ show port
                     liftIO $! hFlush stdout
