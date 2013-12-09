@@ -50,6 +50,7 @@ defaultMainState = MainState
     }
 
 data MainFlag = FlagDestination Destination
+              | FlagConnectionsCount Int
     deriving Show
 
 data MainMessage = MainServerReceived Int
@@ -63,6 +64,7 @@ instance Message MainMessage
 options :: [OptDescr MainFlag]
 options = 
     [ Option ['d']     ["dest"]  (ReqArg getDestFlag "addr:port") "destination"
+    , Option ['c']     ["conn-count"]  (ReqArg getConnectionsCountFlag "count") "connections count from client"
     ]
     
 getDestFlag:: String-> MainFlag
