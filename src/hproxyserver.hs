@@ -102,15 +102,16 @@ main = do
                         syslogInfo "TERM signal received"
                         procFinished
                     Just (MainServerReceived !read) -> do
-                        let !old = mainRead ls
+                        let !old = mainWrote ls
                         setLocalState $! Just $! ls 
-                            { mainRead = old + (fromIntegral read)
+                            { 
+                              mainWrote = old + (fromIntegral read)
                             }
                         procRunning
                     Just (MainClientReceived !read) -> do
-                        let !old = mainWrote ls
+                        let !old = mainRead ls
                         setLocalState $! Just $! ls 
-                            { mainWrote = old + (fromIntegral read)
+                            { mainRead = old + (fromIntegral read)
                             }
                         procRunning
                     Just (MainServerConnection hserver) -> do
@@ -235,8 +236,8 @@ mainShutdown = do
             let readed = show (mainRead state) ++ " B"
                 wrote = show (mainWrote state) ++ " B"
                 total = show (mainRead state + mainWrote state) ++ " B"
-            syslogInfo $! "session closed. readed: " ++ readed ++ 
-                ", wrote: " ++ wrote ++ ", total: " ++ total
+            syslogInfo $! "session closed. client readed: " ++ readed ++ 
+                ", client wrote: " ++ wrote ++ ", total: " ++ total
             let Just server = mainServer state
                 mclient = mainClient state
             _<- case mclient of 
