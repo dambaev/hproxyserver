@@ -397,10 +397,11 @@ clientShutdown hserver = do
                 when (cclosed == False) $! do
                     hFlush (clientHandle some)
                     hClose (clientHandle some)
-                sclosed <- hIsClosed hserver
+                {-sclosed <- hIsClosed hserver
                 when (sclosed == False) $! do
                     hFlush hserver
                     hClose hserver
+                -}
                 free (clientBuffer some)
             procFinished
 
