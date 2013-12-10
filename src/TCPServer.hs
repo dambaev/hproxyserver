@@ -148,7 +148,6 @@ serverShutdown = do
                     Just wh -> do
                         closed <- hIsClosed wh
                         when (closed == False) $! do
-                            hFlush wh
                             hClose wh
                 free (workerBuffer some)
                 sClose (workerSocket some)
@@ -157,7 +156,6 @@ serverShutdown = do
                 Just h-> liftIO $! do
                     closed <- hIsClosed h
                     when (closed == False) $! do
-                        hFlush h
                         hClose h
             procFinished
 
@@ -213,7 +211,9 @@ serverIterate receiveAction onOpen = do
                     Nothing -> procRunning
                     Just 0 -> liftIO $! ioError $! mkIOError eofErrorType "no data received" Nothing Nothing
                     Just !read -> do
-                        liftIO $! hPutBuf hout ptr read
+                        liftIO $! do
+                            hPutBuf hout ptr read
+                            hFlush hout
                         receiveAction read
                         procRunning
 
@@ -382,14 +382,16 @@ clientSupInit addr port outbox hserver receiveAction = do
 
 clientInit:: String-> PortID-> MBox ClientFeedback-> Handle-> HEPProc
 clientInit addr port outbox consumer = do
+    buff <- liftIO $! mallocBytes bufferSize
+    setLocalState $! Just $! ClientState
+        { clientBuffer = buff
+        , clientConsumer = consumer
+        }
     h <- liftIO $! connectTo addr port 
     liftIO $! hSetBuffering h NoBuffering
     liftIO $! hSetBinaryMode h True
-    buff <- liftIO $! mallocBytes bufferSize
     setLocalState $! Just $! ClientState
         { clientHandle = h
-        , clientBuffer = buff
-        , clientConsumer = consumer
         }
     liftIO $! sendMBox outbox $! ClientStarted h
     procRunning
@@ -403,11 +405,9 @@ clientShutdown hserver = do
             liftIO $! do
                 cclosed <- hIsClosed (clientHandle some)
                 when (cclosed == False) $! do
-                    hFlush (clientHandle some)
                     hClose (clientHandle some)
                 sclosed <- hIsClosed hserver
                 when (sclosed == False) $! do
-                    hFlush hserver
                     hClose hserver
                 
                 free (clientBuffer some)
@@ -429,7 +429,9 @@ clientWorker receiveAction = do
         Nothing -> procRunning
         Just 0 -> procFinished
         Just !read -> do
-            liftIO $! hPutBuf consumer ptr read
+            liftIO $! do
+                hPutBuf consumer ptr read
+                hFlush consumer
             receiveAction read
             procRunning
             
