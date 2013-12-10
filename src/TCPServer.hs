@@ -123,7 +123,6 @@ serverInit:: PortID
 serverInit port svpid = do
     syslogInfo "worker started"
     lsocket <- liftIO $! listenOn port
-    H.send svpid $! WorkerStarted port
     buff <- liftIO $! mallocBytes bufferSize
     setLocalState $! Just $! WorkerState
         { workerHandle = Nothing
@@ -131,7 +130,7 @@ serverInit port svpid = do
         , workerConsumer = Nothing
         , workerSocket = lsocket
         }
-    
+    H.send svpid $! WorkerStarted port
     procRunning
     
     
@@ -191,6 +190,7 @@ serverIterate receiveAction onOpen = do
                     onOpen h 
                     procRunning
                 Just hcons -> do
+                    syslogInfo $! "closing consumer's handle on restart"
                     liftIO $! hClose hcons
                     setLocalState $! Just $! ls
                         { workerConsumer = Nothing
@@ -312,7 +312,7 @@ serverSupervisor receiveAction onOpen = do
         handleServiceMessage (Just (ProcShutdownFailure cpid e _ outbox)) = 
             left =<< lift ( do
                 procFinish outbox
-                syslogInfo $! "client shutdown failed with " ++ show e
+                syslogInfo $! "server shutdown failed with " ++ show e
                 procRunning
                 )
 
@@ -383,14 +383,15 @@ clientSupInit addr port outbox hserver receiveAction = do
 clientInit:: String-> PortID-> MBox ClientFeedback-> Handle-> HEPProc
 clientInit addr port outbox consumer = do
     buff <- liftIO $! mallocBytes bufferSize
-    setLocalState $! Just $! ClientState
-        { clientBuffer = buff
-        , clientConsumer = consumer
-        }
+    let ls = ClientState
+            { clientBuffer = buff
+            , clientConsumer = consumer
+            }
+    setLocalState $! Just $! ls
     h <- liftIO $! connectTo addr port 
     liftIO $! hSetBuffering h NoBuffering
     liftIO $! hSetBinaryMode h True
-    setLocalState $! Just $! ClientState
+    setLocalState $! Just $! ls
         { clientHandle = h
         }
     liftIO $! sendMBox outbox $! ClientStarted h
