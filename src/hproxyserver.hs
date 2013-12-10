@@ -37,7 +37,6 @@ data MainState = MainState
     , mainConfig:: Maybe Config
     , mainRead:: Integer
     , mainWrote:: Integer
-    , mainConnectionsCount:: Int
     }
     deriving (Typeable)
 instance HEPLocalState MainState
@@ -48,12 +47,21 @@ defaultMainState = MainState
     , mainConfig = Nothing
     , mainRead = 0
     , mainWrote = 0
-    , mainConnectionsCount = 1
     }
 
 data MainFlag = FlagDestination Destination
               | FlagConnectionsCount Int
     deriving Show
+
+data MainOptions = MainOptions
+    { optionDestination:: Maybe Destination
+    , optionConnectionsCount :: Int
+    }
+
+defaultMainOptions = MainOptions
+    { optionDestination = Nothing
+    , optionConnectionsCount = 1
+    }
 
 data MainMessage = MainServerReceived Int
                  | MainClientReceived Int
@@ -85,6 +93,21 @@ getMainOptions argv =
         (!o,n,[]  ) -> return o
         (_,_,errs) -> ioError (userError (concat errs ++ usageInfo header options))
     where header = "Usage: hproxyserver [OPTION...]"
+
+parseParams:: [String]-> MainOptions
+parseParams args = 
+    let flags = case getOpt Permute options args of
+            ([],_,_) -> error (usageInfo header options)
+            (!o,n,[]  ) -> o
+            (_,_,errs) -> error (concat errs ++ usageInfo header options)
+        header = "Usage: hproxyserver [OPTION...]"
+    in parseParams' flags defaultMainOptions
+    
+parseParams' [] opts = opts
+parseParams' ((FlagConnectionsCount cnt):ls) opts = 
+    parseParams' ls opts{ optionConnectionsCount = cnt}
+parseParams' ((FlagDestination dst):ls) opts = 
+    parseParams' ls opts{ optionDestination = Just dst}
 
 main = do
     !myuuid <- nextRandom >>= return . show
@@ -184,10 +207,12 @@ mainInit:: HEPProc
 mainInit = do
     syslogInfo "installing signal handlers"
     setupSignals
+    syslogInfo "parsing parameters"
+    params <- liftIO $! getArgs >>= return . parseParams
     syslogInfo "loading config"
     config <- liftIO $! loadConfig "/etc/hproxy/config"
     syslogInfo "generating ProxySession info"
-    !session <- generateProxySession
+    !session <- generateProxySession params
     syslogInfo "loading rules"
     !rules <- liftIO $! parseRuleDir (configRulesDir config)
     syslogInfo $! "loaded " ++ (show $ length rules) ++ " rule-files"
@@ -211,7 +236,7 @@ mainInit = do
                     (servpid, (PortNumber port)) <- 
                         startTCPServerBasePort 
                             (PortNumber $! fromIntegral $! configTCPPortsBase config)
-                            (3)
+                            (optionConnectionsCount params)
                             (\x-> H.send me $! MainServerReceived x)
                             (\pid x-> H.send me $! MainServerConnection x)
                             (H.send me MainStop)
@@ -249,8 +274,8 @@ mainShutdown = do
 
     
 
-generateProxySession:: HEP ProxySession
-generateProxySession = do
+generateProxySession:: MainOptions-> HEP ProxySession
+generateProxySession opts = do
     utctime <- liftIO $! getCurrentTime
     tz <- liftIO $! getCurrentTimeZone
     let !localtime = utcToLocalTime tz utctime
@@ -263,7 +288,7 @@ generateProxySession = do
         lday = (localDay localtime)
         (_, _, !weekday) = toWeekDate lday
     syslogInfo $! "week day is " ++ show weekday
-    FlagDestination dest <- liftIO $! getArgs >>= getMainOptions >>= return . head
+    let Just dest = optionDestination opts
     syslogInfo $! "destination: " ++ show dest
     (!username, !usersid) <- liftIO $! getCurrentUserSID >>= \x-> case x of
         Left e  -> liftIO $! ioError $! userError e
