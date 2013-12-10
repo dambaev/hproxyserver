@@ -353,7 +353,7 @@ startTCPClient:: String
 startTCPClient addr port hserver receiveAction onClose = do
     !inbox <- liftIO newMBox
     sv <- spawn $! procWithBracket (clientSupInit addr port inbox hserver receiveAction) 
-        (onClose >> procFinished) $!
+        procFinished $! -- (onClose >> procFinished) $!
         proc $! clientSupervisor
     ClientStarted !h <- liftIO $! receiveMBox inbox
     return (h,sv)
