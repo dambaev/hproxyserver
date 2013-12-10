@@ -398,6 +398,8 @@ clientInit addr port outbox consumer = do
 
 clientShutdown:: Handle-> HEPProc
 clientShutdown hserver = do
+    sclosed <- liftIO $! hIsClosed hserver
+    when (sclosed == False) $! liftIO $! hClose hserver
     ls <- localState
     case ls of
         Nothing-> procFinished
@@ -406,10 +408,6 @@ clientShutdown hserver = do
                 cclosed <- hIsClosed (clientHandle some)
                 when (cclosed == False) $! do
                     hClose (clientHandle some)
-                sclosed <- hIsClosed hserver
-                when (sclosed == False) $! do
-                    hClose hserver
-                
                 free (clientBuffer some)
             procFinished
 
