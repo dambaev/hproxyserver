@@ -181,15 +181,23 @@ serverIterate receiveAction onOpen = do
         !consumer = workerConsumer ls
     case workerHandle ls of
         Nothing-> do
-            (h, host, _) <- liftIO $! N.accept (workerSocket ls)
-            liftIO $! hSetBuffering h NoBuffering
-            liftIO $! hSetBinaryMode h True
-            syslogInfo $! "accepted connection from " ++ show host
-            setLocalState $! Just $! ls 
-                { workerHandle = Just h
-                }
-            onOpen h 
-            procRunning
+            case workerConsumer ls of
+                Nothing-> do
+                    (h, host, _) <- liftIO $! N.accept (workerSocket ls)
+                    liftIO $! hSetBuffering h NoBuffering
+                    liftIO $! hSetBinaryMode h True
+                    syslogInfo $! "accepted connection from " ++ show host
+                    setLocalState $! Just $! ls 
+                        { workerHandle = Just h
+                        }
+                    onOpen h 
+                    procRunning
+                Just hcons -> do
+                    liftIO $! hClose hcons
+                    setLocalState $! Just $! ls
+                        { workerConsumer = Nothing
+                        }
+                    procRunning
         Just h -> case consumer of
             Nothing-> do
                 liftIO $! yield >> threadDelay 500000
