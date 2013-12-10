@@ -57,6 +57,7 @@ data MainOptions = MainOptions
     { optionDestination:: Maybe Destination
     , optionConnectionsCount :: Int
     }
+    deriving Show
 
 defaultMainOptions = MainOptions
     { optionDestination = Nothing
@@ -209,6 +210,7 @@ mainInit = do
     setupSignals
     syslogInfo "parsing parameters"
     params <- liftIO $! getArgs >>= return . parseParams
+    syslogInfo $! show params
     syslogInfo "loading config"
     config <- liftIO $! loadConfig "/etc/hproxy/config"
     syslogInfo "generating ProxySession info"
