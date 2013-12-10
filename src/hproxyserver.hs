@@ -210,7 +210,7 @@ mainInit = do
                     (servpid, (PortNumber port)) <- 
                         startTCPServerBasePort 
                             (PortNumber $! fromIntegral $! configTCPPortsBase config)
-                            2
+                            10
                             (\x-> H.send me $! MainServerReceived x)
                             (\pid x-> H.send me $! MainServerConnection x)
                             (H.send me MainStop)
