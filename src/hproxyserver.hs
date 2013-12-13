@@ -177,11 +177,11 @@ superLogAndExit = do
         
         handleServiceMessage:: Maybe SupervisorMessage -> EitherT HEPProcState HEP HEPProcState
         handleServiceMessage Nothing = lift procRunning >>= right
-        handleServiceMessage (Just (ProcWorkerFailure cpid e _ outbox)) = do
+        handleServiceMessage (Just (ProcWorkerFailure cpid e state outbox)) = do
             liftIO $! putStrLn $! "ERROR: " ++ show e
             lift $! syslogInfo $! "supervisor: worker " ++ show cpid ++ 
                 " failed with: " ++ show e ++ ". It will be recovered"
-            lift $! procFinish outbox
+            lift $! procContinue outbox state
             lift procRunning >>= left
         handleServiceMessage (Just (ProcInitFailure cpid e _ outbox)) = do
             liftIO $! putStrLn $! "ERROR: " ++ show e

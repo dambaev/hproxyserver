@@ -363,8 +363,10 @@ startTCPClient addr port hserver receiveAction onClose = do
     sv <- spawn $! procWithBracket (clientSupInit addr port inbox hserver receiveAction) 
         procFinished $! -- (onClose >> procFinished) $!
         proc $! clientSupervisor
-    ClientStarted !h <- liftIO $! receiveMBox inbox
-    return (h,sv)
+    answ <- liftIO $! receiveMBoxAfter 60000 inbox
+    case answ of 
+        Just (ClientStarted !h) -> return (h,sv)
+        _ -> error "client was unable to connect"
 
 clientSupInit:: String
              -> PortID
