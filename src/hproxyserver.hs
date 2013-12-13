@@ -68,6 +68,7 @@ data MainMessage = MainServerReceived Int
                  | MainClientReceived Int
                  | MainServerConnection !Handle
                  | MainStop
+                 | MainClientStop
     deriving Typeable
 instance Message MainMessage
 
@@ -125,6 +126,10 @@ main = do
                     Just MainStop -> do
                         syslogInfo "TERM signal received"
                         procFinished
+                    Just MainClientStop -> do
+                        let Just server = mainServer ls
+                        stopTCPServer server
+                        procRunning
                     Just (MainServerReceived !read) -> do
                         let !old = mainWrote ls
                         setLocalState $! Just $! ls 
@@ -152,7 +157,7 @@ main = do
                                 (PortNumber $! fromIntegral port) 
                                 hserver
                                 (\x-> H.send me $! MainClientReceived x)
-                                (H.send me MainStop)
+                                (H.send me MainClientStop)
                         setConsumer server hclient
                         setLocalState $! Just $! ls
                             { mainClient = Just clientpid

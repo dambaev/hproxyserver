@@ -358,11 +358,11 @@ startTCPClient:: String
               -> (Int-> HEP ())
               -> HEP ()
               -> HEP (Handle, Pid)
-startTCPClient addr port hserver receiveAction onClose = do
+startTCPClient addr port hserver receiveAction onInitFailed = do
     !inbox <- liftIO newMBox
-    sv <- spawn $! procWithBracket (clientSupInit addr port inbox hserver receiveAction) 
+    sv <- spawn $! procWithBracket (clientSupInit addr port inbox hserver receiveAction ) 
         procFinished $! -- (onClose >> procFinished) $!
-        proc $! clientSupervisor
+        proc $! clientSupervisor onInitFailed
     answ <- liftIO $! receiveMBoxAfter 60000 inbox
     case answ of 
         Just (ClientStarted !h) -> return (h,sv)
@@ -444,8 +444,8 @@ stopTCPClient:: Pid-> HEP ()
 stopTCPClient pid = do
     H.send pid $! StopClient
 
-clientSupervisor:: HEPProc
-clientSupervisor = do
+clientSupervisor:: HEP () -> HEPProc
+clientSupervisor onInitFailure = do
     msg <- receive
     let handleChildLinkMessage:: Maybe LinkedMessage -> EitherT HEPProcState HEP HEPProcState
         handleChildLinkMessage Nothing = lift procRunning >>= right
@@ -481,6 +481,7 @@ clientSupervisor = do
                 syslogError $! "supervisor: client init " ++ show cpid ++ 
                     " failed with: " ++ show e
                 procFinish outbox
+                onInitFailure
                 procRunning
                 )
         handleClientSupervisorCommand:: Maybe ClientSupervisorCommand
