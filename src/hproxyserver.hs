@@ -147,25 +147,29 @@ main = do
                     Just (MainServerConnection hserver) -> do
                         Just ls <- localState
                         me <- self
-                        let session = proxySession ls
-                            DestinationAddrPort (IPAddress addr) port =     
-                                sessionDestination session
-                            Just server = mainServer ls
-                        syslogInfo $! "starting client to " ++ 
-                            show addr ++ ":" ++ show port
-                        (!hclient, clientpid) <- 
-                            startTCPClient addr 
-                                (PortNumber $! fromIntegral port) 
-                                hserver
-                                (\x-> H.send me $! MainClientReceived x)
-                                (H.send me MainClientStop)
-                        setConsumer server hclient
-                        setLocalState $! Just $! ls
-                            { mainClient = Just clientpid
-                            }
-                        syslogInfo "client started"
+                        spawn $! H.proc $! startClientWorker ls me hserver
                         procRunning
         
+startClientWorker:: MainState-> Pid-> Handle-> HEPProc 
+startClientWorker ls me hserver = do
+    let session = proxySession ls
+        DestinationAddrPort (IPAddress addr) port =     
+            sessionDestination session
+        Just server = mainServer ls
+    syslogInfo $! "starting client to " ++ 
+        show addr ++ ":" ++ show port
+    (!hclient, clientpid) <- 
+        startTCPClient addr 
+            (PortNumber $! fromIntegral port) 
+            hserver
+            (\x-> H.send me $! MainClientReceived x)
+            (H.send me MainClientStop)
+    setConsumer server hclient
+    setLocalState $! Just $! ls
+        { mainClient = Just clientpid
+        }
+    syslogInfo "client started"
+    procFinished
 
 superLogAndExit:: HEPProc
 superLogAndExit = do
