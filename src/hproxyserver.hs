@@ -127,6 +127,7 @@ main = do
                         syslogInfo "TERM signal received"
                         procFinished
                     Just MainClientStop -> do
+                        syslogInfo "main: client init failed"
                         let Just server = mainServer ls
                         stopTCPServer server
                         procRunning
