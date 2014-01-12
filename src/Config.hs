@@ -12,7 +12,7 @@ defaultConfig = Config
     { configRulesDir = "/etc/hproxy/rules.d/"
     , configNotifyCMD = "proxynotify"
     , configTCPPortsBase = 10000
-    , configConnectionTimeout = 60
+    , configConnectionTimeout = 1200
     }
 
 
