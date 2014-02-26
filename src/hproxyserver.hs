@@ -31,16 +31,17 @@ import System.Exit
 import System.Posix.Signals
 
 data MainState = MainState
-    { proxySession:: ProxySession
-    , mainServer:: Maybe Pid
-    , mainClient :: Maybe Pid
-    , mainConfig:: Maybe Config
-    , mainRead:: Integer
-    , mainWrote:: Integer
+    { proxySession:: ProxySession -- current session 
+    , mainServer:: Maybe Pid -- server thread
+    , mainClient :: Maybe Pid -- client thread
+    , mainConfig:: Maybe Config -- config
+    , mainRead:: Integer -- bytes read
+    , mainWrote:: Integer -- bytes wrote
     }
     deriving (Typeable)
 instance HEPLocalState MainState
 
+-- default main state
 defaultMainState = MainState
     { mainServer = Nothing
     , mainClient = Nothing
@@ -49,8 +50,9 @@ defaultMainState = MainState
     , mainWrote = 0
     }
 
-data MainFlag = FlagDestination Destination
-              | FlagConnectionsCount Int
+data MainFlag = FlagDestination Destination -- destination
+              | FlagConnectionsCount Int -- connections count to wait 
+                                         -- for
     deriving Show
 
 data MainOptions = MainOptions
@@ -64,11 +66,12 @@ defaultMainOptions = MainOptions
     , optionConnectionsCount = 1
     }
 
-data MainMessage = MainServerReceived Int
-                 | MainClientReceived Int
-                 | MainServerConnection !Handle
-                 | MainStop
-                 | MainClientStop
+data MainMessage = MainServerReceived Int -- message: input to server
+                 | MainClientReceived Int -- message: output from server
+                 | MainServerConnection !Handle -- message: handle of 
+                                                -- server connection
+                 | MainStop -- stop program
+                 | MainClientStop -- stop client
     deriving Typeable
 instance Message MainMessage
 
@@ -263,7 +266,9 @@ mainInit = do
                         }
                     procRunning
     
-    
+{-
+ - shutdown routine of main process
+ -}
 mainShutdown:: HEPProc
 mainShutdown = do
     ls <- localState

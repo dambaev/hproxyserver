@@ -180,15 +180,19 @@ serverIterate receiveAction onOpen = do
         Nothing-> do
             case workerConsumer ls of
                 Nothing-> do
-                    (h, host, _) <- liftIO $! N.accept (workerSocket ls)
-                    liftIO $! hSetBuffering h NoBuffering
-                    liftIO $! hSetBinaryMode h True
-                    syslogInfo $! "accepted connection from " ++ show host
-                    setLocalState $! Just $! ls 
-                        { workerHandle = Just h
-                        }
-                    onOpen h 
-                    procRunning
+                    maccept <- liftIO $! timeout (10 * 1000000) $! 
+                        N.accept (workerSocket ls)
+                    case maccept of
+                        Just (h, host, _) -> do
+                            liftIO $! hSetBuffering h NoBuffering
+                            liftIO $! hSetBinaryMode h True
+                            syslogInfo $! "accepted connection from " ++ show host
+                            setLocalState $! Just $! ls 
+                                { workerHandle = Just h
+                                }
+                            onOpen h 
+                            procRunning
+                        _ -> procFinished
                 Just hcons -> do
                     syslogInfo $! "closing consumer's handle on restart"
                     liftIO $! hClose hcons
