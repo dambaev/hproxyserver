@@ -252,6 +252,7 @@ mainInit = do
                         startTCPServerBasePort 
                             (PortNumber $! fromIntegral $! configTCPPortsBase config)
                             (optionConnectionsCount params)
+                            (configConnectionTimeout config)
                             (\x-> H.send me $! MainServerReceived x)
                             (\pid x-> H.send me $! MainServerConnection x)
                             (H.send me MainStop)

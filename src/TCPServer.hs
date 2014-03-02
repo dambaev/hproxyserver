@@ -35,6 +35,7 @@ data WorkerState = WorkerState
     , workerBuffer :: Ptr CChar
     , workerConsumer:: Maybe Handle
     , workerSocket :: Socket
+    , workerTimeout:: Int
     }
     deriving Typeable
 instance HEPLocalState WorkerState
@@ -79,14 +80,15 @@ bufferSize = 64*1024
 
 startTCPServerBasePort:: PortID
                       -> Int
+                      -> Int
                       -> (Int-> HEP ()) 
                       -> (Pid-> Handle-> HEP ()) 
                       -> HEP ()
                       -> HEP (Pid, PortID)
-startTCPServerBasePort base connectionsCount receiveAction onOpen onClose = do
+startTCPServerBasePort base connectionsCount timeoutVal receiveAction onOpen onClose = do
     !input <- liftIO newMBox
-    sv <- spawn $! procWithBracket (serverSupInit base connectionsCount input receiveAction onOpen) 
-        (serverSupShutdown onClose) $! proc $! serverSupervisor receiveAction onOpen 
+    sv <- spawn $! procWithBracket (serverSupInit base connectionsCount timeoutVal input receiveAction onOpen) 
+        (serverSupShutdown onClose) $! proc $! serverSupervisor receiveAction onOpen timeoutVal
     ServerStarted !port <- liftIO $! receiveMBox input
     return (sv, port)
 
@@ -98,14 +100,15 @@ setConsumer pid !h = do
 
 serverSupInit:: PortID
              -> Int
+             -> Int
              -> MBox SupervisorAnswer
              -> (Int-> HEP ()) 
              -> (Pid-> Handle-> HEP ()) 
              -> HEPProc
-serverSupInit port connectionsCount starter receiveAction onOpen = do
+serverSupInit port connectionsCount timeoutVal starter receiveAction onOpen = do
     me <- self
     pid <- spawn $! procWithSubscriber me $! 
-        procWithBracket (serverInit port me) serverShutdown $! 
+        procWithBracket (serverInit port me timeoutVal) serverShutdown $! 
         proc $! serverWorker receiveAction (onOpen me)
     addSubscribe pid
     setLocalState $! Just $! SupervisorState
@@ -119,8 +122,9 @@ serverSupInit port connectionsCount starter receiveAction onOpen = do
     
 serverInit:: PortID
           -> Pid
+          -> Int
           -> HEPProc
-serverInit port svpid = do
+serverInit port svpid timeoutVal = do
     syslogInfo "worker started"
     lsocket <- liftIO $! listenOn port
     buff <- liftIO $! mallocBytes bufferSize
@@ -129,6 +133,7 @@ serverInit port svpid = do
         , workerBuffer = buff
         , workerConsumer = Nothing
         , workerSocket = lsocket
+        , workerTimeout = timeoutVal
         }
     H.send svpid $! WorkerStarted port
     procRunning
@@ -176,11 +181,12 @@ serverIterate receiveAction onOpen = do
     let !h = workerHandle ls
         !ptr = workerBuffer ls
         !consumer = workerConsumer ls
+        !timeoutVal = workerTimeout ls
     case workerHandle ls of
         Nothing-> do
             case workerConsumer ls of
                 Nothing-> do
-                    maccept <- liftIO $! timeout (10 * 1000000) $! 
+                    maccept <- liftIO $! timeout timeoutVal  $! 
                         N.accept (workerSocket ls)
                     case maccept of
                         Just (h, host, _) -> do
@@ -228,8 +234,9 @@ serverSupShutdown onClose = do
 
 serverSupervisor:: (Int-> HEP()) 
                 -> (Pid-> Handle-> HEP())
+                -> Int
                 -> HEPProc
-serverSupervisor receiveAction onOpen = do
+serverSupervisor receiveAction onOpen timeoutVal = do
     msg <- receive
     let handleChildLinkMessage:: Maybe LinkedMessage -> EitherT HEPProcState HEP HEPProcState
         handleChildLinkMessage Nothing = lift procRunning >>= right
@@ -303,7 +310,7 @@ serverSupervisor receiveAction onOpen = do
                 me <- self
                 syslogInfo $! "port " ++ show port ++ " is busy"
                 pid <- spawn $! procWithSubscriber me $! 
-                    procWithBracket (serverInit newport me ) 
+                    procWithBracket (serverInit newport me timeoutVal) 
                         serverShutdown $! 
                     proc $! serverWorker receiveAction (onOpen me)
                 addSubscribe pid
