@@ -78,6 +78,15 @@ instance Message ClientSupervisorCommand
  -}
 bufferSize = 64*1024
 
+{-
+ - start process, that:
+ -  - listens on next available port, after base
+ -  - waits for connectionsCount connections
+ -  - timeouts waiting after timeoutVal
+ -  - on client connection, it runs action onOpen
+ -  - on connection shutdown, it runs action onClose
+ -  - when it receives something, it runs receiveAction
+ -}
 startTCPServerBasePort:: PortID
                       -> Int
                       -> Int
@@ -89,15 +98,19 @@ startTCPServerBasePort base connectionsCount timeoutVal receiveAction onOpen onC
     !input <- liftIO newMBox
     sv <- spawn $! procWithBracket (serverSupInit base connectionsCount timeoutVal input receiveAction onOpen) 
         (serverSupShutdown onClose) $! proc $! serverSupervisor receiveAction onOpen timeoutVal
+    -- wait while TCP server finds available port 
     ServerStarted !port <- liftIO $! receiveMBox input
     return (sv, port)
 
+-- sets client connection for server
 setConsumer:: Pid-> Handle-> HEP ()
 setConsumer pid !h = do
     H.send pid $! SetWorkerConsumer h
     return ()
 
-
+{-
+ - initialization routine for servers' supervisor proc
+ -}
 serverSupInit:: PortID
              -> Int
              -> Int
@@ -107,10 +120,13 @@ serverSupInit:: PortID
              -> HEPProc
 serverSupInit port connectionsCount timeoutVal starter receiveAction onOpen = do
     me <- self
+    -- spawn server proc and subscribe "me" to his messages
     pid <- spawn $! procWithSubscriber me $! 
         procWithBracket (serverInit port me timeoutVal) serverShutdown $! 
         proc $! serverWorker receiveAction (onOpen me)
+    -- remember spawned proc as our subscribe
     addSubscribe pid
+    -- remember state
     setLocalState $! Just $! SupervisorState
         { serverPort = port
         , supervisorStarter = starter
@@ -119,14 +135,19 @@ serverSupInit port connectionsCount timeoutVal starter receiveAction onOpen = do
         }
     procRunning
     
-    
+{-
+ - servers' process initialization routine
+ -}
 serverInit:: PortID
           -> Pid
           -> Int
           -> HEPProc
 serverInit port svpid timeoutVal = do
     syslogInfo "worker started"
+    -- try to listen on port, if it is busy, exception will be thrown
+    -- that will be catched by Supervisor
     lsocket <- liftIO $! listenOn port
+    -- allocate buffer for data
     buff <- liftIO $! mallocBytes bufferSize
     setLocalState $! Just $! WorkerState
         { workerHandle = Nothing
@@ -139,31 +160,42 @@ serverInit port svpid timeoutVal = do
     procRunning
     
     
-
+{-
+ - servers' shutdown routine.
+ -}
 serverShutdown :: HEPProc
 serverShutdown = do
     ls <- localState
     case ls of
+        -- if there is no state at all
         Nothing -> procFinished
+        -- if we have state, we should clean it
         Just some -> do
             liftIO $! do
                 _ <- case workerHandle some of
                     Nothing-> return ()
                     Just wh -> do
                         closed <- hIsClosed wh
+                        -- close server's connection handle
                         when (closed == False) $! do
                             hClose wh
+                -- free buffer
                 free (workerBuffer some)
                 sClose (workerSocket some)
             _ <- case workerConsumer some of
                 Nothing-> return ()
                 Just h-> liftIO $! do
+                    -- close client's connection handle
                     closed <- hIsClosed h
                     when (closed == False) $! do
                         hClose h
             procFinished
 
-
+{-
+ - main server's routine. it waits while something is received from
+ - client's connection and calls serverIterate or it waits for client's
+ - connection to establish, if it has no one yet
+ -}
 serverWorker:: (Int-> HEP ()) -> (Handle-> HEP ())->HEPProc
 serverWorker receiveAction onOpen = do
     !mmsg <- receiveMaybe
@@ -240,6 +272,7 @@ serverSupervisor receiveAction onOpen timeoutVal = do
     msg <- receive
     let handleChildLinkMessage:: Maybe LinkedMessage -> EitherT HEPProcState HEP HEPProcState
         handleChildLinkMessage Nothing = lift procRunning >>= right
+        -- if worker is finished, then we shoud finish too
         handleChildLinkMessage (Just (ProcessFinished pid)) = do
             lift $! syslogInfo $! "supervisor: server thread exited"
             subscribed <- lift getSubscribed
@@ -249,6 +282,9 @@ serverSupervisor receiveAction onOpen timeoutVal = do
         
         handleServiceMessage:: Maybe SupervisorMessage -> EitherT HEPProcState HEP HEPProcState
         handleServiceMessage Nothing = lift procRunning >>= right
+        -- if worker's main proc has been failed, then we must either 
+        -- finish it or, if connections-count > 1, then we should restart
+        -- server and wait for another connection
         handleServiceMessage (Just (ProcWorkerFailure cpid e wstate outbox)) = do
             left =<< lift (do
                 Just ls <- localState
@@ -301,6 +337,7 @@ serverSupervisor receiveAction onOpen timeoutVal = do
                         procFinish outbox
                         procRunning
                 )
+        -- if worker's init was failed, we increase port's number and retry
         handleServiceMessage (Just (ProcInitFailure cpid e _ outbox)) = 
             left =<< lift ( do
                 procFinish outbox
@@ -320,6 +357,7 @@ serverSupervisor receiveAction onOpen timeoutVal = do
                     }
                 procRunning
                 )
+        -- the impossible happend
         handleServiceMessage (Just (ProcShutdownFailure cpid e _ outbox)) = 
             left =<< lift ( do
                 procFinish outbox
