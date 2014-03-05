@@ -38,7 +38,7 @@ data MainState = MainState
     , mainRead:: Integer -- bytes read
     , mainWrote:: Integer -- bytes wrote
     }
-    deriving (Typeable)
+    deriving (Typeable, Show)
 instance HEPLocalState MainState
 
 -- default main state
@@ -66,6 +66,9 @@ defaultMainOptions = MainOptions
     , optionConnectionsCount = 1
     }
 
+{-
+ - messages for Main process
+ -}
 data MainMessage = MainServerReceived Int -- message: input to server
                  | MainClientReceived Int -- message: output from server
                  | MainServerConnection !Handle -- message: handle of 
@@ -75,7 +78,9 @@ data MainMessage = MainServerReceived Int -- message: input to server
     deriving Typeable
 instance Message MainMessage
 
-
+{-
+ - program options
+ -}
 options :: [OptDescr MainFlag]
 options = 
     [ Option ['d']     ["dest"]  (ReqArg getDestFlag "addr:port") "destination"
@@ -115,13 +120,9 @@ parseParams' ((FlagDestination dst):ls) opts =
     parseParams' ls opts{ optionDestination = Just dst}
 
 main = do
-    !myuuid <- nextRandom >>= return . show
-    withSocketsDo $! runHEPGlobal $! do
-        withSyslog ("hproxyserver-"++myuuid) $! do
-            procWithSupervisor (H.proc superLogAndExit) $! 
-                procWithBracket mainInit mainShutdown $! H.proc $! mainWorker
-        
-mainWorker = do
+    !myuuid <- nextRandom >>= return . show 
+    withSocketsDo $! runHEPGlobal $! withSyslog ("hproxyserver-"++myuuid) $! procWithSupervisor (H.proc superLogAndExit) $! 
+        procWithBracket mainInit mainShutdown $! H.proc $! do
             Just ls <- localState
             let Just config = mainConfig ls
                 !timeout = configConnectionTimeout config

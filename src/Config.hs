@@ -6,6 +6,7 @@ data Config = Config
     , configTCPPortsBase:: Int
     , configConnectionTimeout:: Int
     }
+    deriving Show
 
 
 defaultConfig = Config
@@ -15,6 +16,6 @@ defaultConfig = Config
     , configConnectionTimeout = 1200
     }
 
-
+-- dummy config loader
 loadConfig:: String-> IO Config
 loadConfig fname = return defaultConfig
