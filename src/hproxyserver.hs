@@ -295,7 +295,7 @@ mainShutdown = do
             return ()
     syslogInfo $! "pids, running on shutdown"
     pids <- getProcs
-    syslogInfo $! concatMap ( (++"\n") . show ) $! pids
+    syslogInfo $! unlines $! map show pids
     syslogInfo $! "state: " ++ show ls
     procFinished
 
