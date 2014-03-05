@@ -186,7 +186,7 @@ serverIterate receiveAction onOpen = do
         Nothing-> do
             case workerConsumer ls of
                 Nothing-> do
-                    maccept <- liftIO $! timeout timeoutVal  $! 
+                    maccept <- liftIO $! timeout (timeoutVal * 1000000)  $! 
                         N.accept (workerSocket ls)
                     case maccept of
                         Just (h, host, _) -> do

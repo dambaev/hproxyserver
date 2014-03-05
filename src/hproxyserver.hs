@@ -116,8 +116,12 @@ parseParams' ((FlagDestination dst):ls) opts =
 
 main = do
     !myuuid <- nextRandom >>= return . show
-    withSocketsDo $! runHEPGlobal $! withSyslog ("hproxyserver-"++myuuid) $! procWithSupervisor (H.proc superLogAndExit) $! 
-        procWithBracket mainInit mainShutdown $! H.proc $! do
+    withSocketsDo $! runHEPGlobal $! do
+        withSyslog ("hproxyserver-"++myuuid) $! do
+            procWithSupervisor (H.proc superLogAndExit) $! 
+                procWithBracket mainInit mainShutdown $! H.proc $! mainWorker
+        
+mainWorker = do
             Just ls <- localState
             let Just config = mainConfig ls
                 !timeout = configConnectionTimeout config
@@ -288,6 +292,10 @@ mainShutdown = do
                 Just client -> stopTCPClient client
             stopTCPServer server
             return ()
+    syslogInfo $! "pids, running on shutdown"
+    pids <- getProcs
+    syslogInfo $! concatMap ( (++"\n") . show ) $! pids
+    syslogInfo $! "state: " ++ show ls
     procFinished
 
     
