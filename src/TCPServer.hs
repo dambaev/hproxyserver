@@ -119,6 +119,7 @@ serverSupInit:: PortID
              -> (Pid-> Handle-> HEP ()) 
              -> HEPProc
 serverSupInit port connectionsCount timeoutVal starter receiveAction onOpen = do
+    register "TCPserverSupervisor"
     me <- self
     -- spawn server proc and subscribe "me" to his messages
     pid <- spawn $! procWithSubscriber me $! 
@@ -143,6 +144,7 @@ serverInit:: PortID
           -> Int
           -> HEPProc
 serverInit port svpid timeoutVal = do
+    register "TCPserver"
     syslogInfo "worker started"
     -- try to listen on port, if it is busy, exception will be thrown
     -- that will be catched by Supervisor
@@ -424,6 +426,7 @@ clientSupInit:: String
              -> (Int-> HEP ())
              -> HEPProc
 clientSupInit addr port outbox hserver receiveAction = do
+    register "TCPClientSupervisor"
     me <- self
     pid <- spawn $! procWithSubscriber me $! 
         procWithBracket (clientInit addr port outbox hserver) 
@@ -433,6 +436,7 @@ clientSupInit addr port outbox hserver receiveAction = do
 
 clientInit:: String-> PortID-> MBox ClientFeedback-> Handle-> HEPProc
 clientInit addr port outbox consumer = do
+    register "TCPClient"
     buff <- liftIO $! mallocBytes bufferSize
     let ls = ClientState
             { clientBuffer = buff

@@ -119,9 +119,23 @@ parseParams' ((FlagConnectionsCount cnt):ls) opts =
 parseParams' ((FlagDestination dst):ls) opts = 
     parseParams' ls opts{ optionDestination = Just dst}
 
+mainStopTCPServer:: HEP ()
+mainStopTCPServer = do
+    mls <- localState
+    case mls of
+        Nothing -> return ()
+        Just ls -> do
+            case mainServer ls of
+                Nothing -> return ()
+                Just server -> do
+                    stopTCPServer server
+                    setLocalState $! Just ls 
+                        { mainServer = Nothing
+                        }
+
 main = do
     !myuuid <- nextRandom >>= return . show 
-    withSocketsDo $! runHEPGlobal $! withSyslog ("hproxyserver-"++myuuid) $! procWithSupervisor (H.proc superLogAndExit) $! 
+    withSocketsDo $! runHEPGlobal $! withSyslog "hproxyserver" $! procWithSupervisor (H.proc superLogAndExit) $! 
         procWithBracket mainInit mainShutdown $! H.proc $! do
             Just ls <- localState
             let Just config = mainConfig ls
@@ -133,11 +147,12 @@ main = do
                     Nothing-> procRunning
                     Just MainStop -> do
                         syslogInfo "TERM signal received"
+                        mainStopTCPServer
                         procFinished
                     Just MainClientStop -> do
                         syslogInfo "main: client init failed"
                         let Just server = mainServer ls
-                        stopTCPServer server
+                        mainStopTCPServer
                         procRunning
                     Just (MainServerReceived !read) -> do
                         let !old = mainWrote ls
@@ -160,6 +175,7 @@ main = do
         
 startClientWorker:: MainState-> Pid-> Handle-> HEPProc 
 startClientWorker ls me hserver = do
+    register "clientWorkerStarter"
     let session = proxySession ls
         DestinationAddrPort (IPAddress addr) port =     
             sessionDestination session
@@ -224,6 +240,7 @@ superLogAndExit = do
 
 mainInit:: HEPProc
 mainInit = do
+    register "mainProc"
     syslogInfo "installing signal handlers"
     setupSignals
     syslogInfo "parsing parameters"
@@ -361,6 +378,7 @@ notify config session permission = do
         !param = "\"user: " ++ username ++ ", dest: " ++ dest ++ 
             ", date: " ++ date ++ " access is " ++ permission ++ "\""
     spawn $! H.proc $! do
+        register "notifier"
         syslogInfo "notifying"
         (code, _, err) <- liftIO $! 
             readProcessWithExitCode cmd [ param ] "" 
