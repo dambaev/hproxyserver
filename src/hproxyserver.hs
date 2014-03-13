@@ -303,12 +303,11 @@ mainShutdown = do
                 total = show (mainRead state + mainWrote state) ++ " B"
             syslogInfo $! "session closed. client readed: " ++ readed ++ 
                 ", client wrote: " ++ wrote ++ ", total: " ++ total
-            let Just server = mainServer state
-                mclient = mainClient state
+            let mclient = mainClient state
             _<- case mclient of 
                 Nothing-> return ()
                 Just client -> stopTCPClient client
-            stopTCPServer server
+            mainStopTCPServer
             return ()
     syslogInfo $! "pids, running on shutdown"
     pids <- getRegProcs
