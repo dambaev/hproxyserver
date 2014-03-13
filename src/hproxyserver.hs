@@ -312,6 +312,8 @@ mainShutdown = do
     syslogInfo $! "pids, running on shutdown"
     pids <- getRegProcs
     forM pids $! \pid-> syslogInfo $! show pid
+    pids <- getProcs
+    syslogInfo $! "pids count = " ++ ( show $! length pids )
     syslogInfo $! "state: " ++ show ls
     procFinished
 
