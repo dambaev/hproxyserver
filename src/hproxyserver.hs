@@ -311,7 +311,7 @@ mainShutdown = do
             stopTCPServer server
             return ()
     syslogInfo $! "pids, running on shutdown"
-    pids <- getProcs
+    pids <- getRegProcs
     forM pids $! \pid-> syslogInfo $! show pid
     syslogInfo $! "state: " ++ show ls
     procFinished
